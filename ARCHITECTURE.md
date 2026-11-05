@@ -76,7 +76,8 @@ StreamPipeline.handle(request, signal)
         v
 filterStreams(streams, parseUserConfig(req.params.config))
         |      resolution bounds, unknown-quality toggle, size cap,
-        |      subtitle language trimming; invalid segment -> defaults
+        |      subtitle language trimming (codes or provider names);
+        |      invalid segment -> defaults
         v
 200 {"streams":[...]} (always)
 ```
@@ -134,7 +135,7 @@ Provider execution is in-process and unsandboxed. The trust boundary is the pinn
 - `title` is `stream.title || stream.name || quality`; if the quality token is not already present, it appends ` • <quality>`.
 - `headers` are trimmed, validated (RFC 7230 token names, no CRLF), and filtered for hop-by-hop and `proxy-*` headers. They are attached only when `PROXY_ENABLED=true` and at least one survives, as `behaviorHints.proxyHeaders.request`.
 - `bingeGroup` is `<scraperId>-<quality|auto>`.
-- `subtitles` accept `{url, language?, name?}` with http(s) URLs and become Stremio `{id, url, lang}` (language defaults to `en`).
+- `subtitles` accept `{url, language?, name?}` with http(s) URLs and become Stremio `{id, url, lang}` (language defaults to `en`). Providers usually emit full names (`English`, `Brazilian`); `userConfig` normalizes both those and configured ISO codes before matching (`LANGUAGE_ALIASES`).
 - At most 20 streams per provider; URLs are deduped.
 - `sortStreams` dedupes globally by URL, sorts by inferred quality (`8k`, `4k`, `uhd`, `qhd`, `fhd`, `###p`, bare resolutions), then prefers direct files (`.mp4`, `.mkv`, etc.) over unknown formats over HLS/DASH. Otherwise input order is preserved.
 - The pipeline caps the combined result at 300 streams.
@@ -160,7 +161,7 @@ Provider execution is in-process and unsandboxed. The trust boundary is the pinn
 
 ## Configuration
 
-All keys are parsed in `src/config.ts`; invalid values abort startup with `ConfigError`. See the table in [README.md](README.md). Notable bounds: `NUVIO_UPDATE_INTERVAL_HOURS` 1-168, `NUVIO_CONCURRENCY` 1-32, `SCRAPER_CONCURRENCY` 1-40, `GLOBAL_DEADLINE_MS` 2000-300000, `STREAM_CACHE_TTL_MS` 0-3600000.
+All keys are parsed in `src/config.ts`; invalid values abort startup with `ConfigError`. See the table in [README.md](README.md). Notable bounds: `NUVIO_UPDATE_INTERVAL_HOURS` 1-168, `NUVIO_CONCURRENCY` 1-32, `SCRAPER_CONCURRENCY` 1-60, `GLOBAL_DEADLINE_MS` 2000-300000, `STREAM_CACHE_TTL_MS` 0-3600000.
 
 `SCRAPER_SETTINGS_JSON` is `{"<scraperId>": {"key": value}}` and may contain debrid credentials; treat it as a secret. `CRON_SECRET` is generated and stored in Vercel only.
 

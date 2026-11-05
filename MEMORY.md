@@ -20,7 +20,7 @@ Working notes for continuity. Update this file after deployment, configuration, 
 ## Current state
 
 - Last code commit verified end-to-end: `10fb616` ("Add /configure page with URL-embedded stream filters").
-- GitHub Actions CI passed for that commit (`typecheck`, `test`, `build`, 64 tests) and Vercel deployed it to Production (`Ready`).
+- GitHub Actions CI passed for that commit (`typecheck`, `test`, `build`, 66 tests) and Vercel deployed it to Production (`Ready`).
 - Vercel Git integration is connected: pushes to `main` create production deployments automatically.
 - The daily cron `GET /api/cron/refresh` (`0 3 * * *`, maxDuration 60) is registered.
 - `/configure` builds per-install filter URLs (max/min resolution, unknown-quality toggle, max size, subtitle languages). Filters are base64url JSON path segments; nothing is stored server-side and invalid segments fall back to defaults.
@@ -29,19 +29,20 @@ Working notes for continuity. Update this file after deployment, configuration, 
 
 Eleven non-secret variables from `deploy/vercel.env` were applied to Production with `scripts/apply-vercel-env.sh`:
 
-`LOG_LEVEL=info`, `NUVIO_SOURCE=eclipsia/nuvio-plugin`, `NUVIO_BRANCH=main`, `NUVIO_UPDATE_INTERVAL_HOURS=24`, `NUVIO_CONCURRENCY=8`, `SCRAPER_CONCURRENCY=12`, `SCRAPER_TIMEOUT_MS=12000`, `GLOBAL_DEADLINE_MS=20000`, `HTTP_TIMEOUT_MS=15000`, `STREAM_CACHE_TTL_MS=60000`, `PROXY_ENABLED=true`.
+`LOG_LEVEL=info`, `NUVIO_SOURCE=eclipsia/nuvio-plugin`, `NUVIO_BRANCH=main`, `NUVIO_UPDATE_INTERVAL_HOURS=24`, `NUVIO_CONCURRENCY=8`, `SCRAPER_CONCURRENCY=60`, `SCRAPER_TIMEOUT_MS=12000`, `GLOBAL_DEADLINE_MS=20000`, `HTTP_TIMEOUT_MS=15000`, `STREAM_CACHE_TTL_MS=60000`, `PROXY_ENABLED=true`.
 
 Secrets:
 
 - `CRON_SECRET` is set in Vercel Production. A local copy used for smoke tests lives at `/root/.nuvio-cron-secret` (mode 600, outside the repo). Never commit or echo it.
-- `TMDB_API_KEY` is **not** set; providers use their embedded fallback key.
-- `SCRAPER_SETTINGS_JSON` is **not** set; provider defaults are in effect.
+- `TMDB_API_KEY` is **not** set; providers use their embedded fallback key (verified working).
+- `SCRAPER_SETTINGS_JSON` is set in Vercel Production with `fjoral.cinemaTvToken` (bollywood.eu.org) and `pynvix.uiToken` (FebBox `ui` cookie). These are the only two providers that require user credentials; never write them to `deploy/vercel.env` or git.
 
 ## Verified behavior (2026-11-05)
 
 - `/manifest.json` → 200, id `community.nuvio.stremio`, types `movie`/`series`, `behaviorHints.configurable: true`.
 - `/configure` → 200 HTML; `/<config>/configure` and `/<config>/manifest.json` → 200.
 - URL filter check (2026-11-05): `tt0133093` unfiltered → 51 streams (5×2160p, 24×1080p, 3×720p, 19 unknown); with `maxRes:720` segment `eyJ2IjoxLCJtYXhSZXMiOjcyMH0` → 22 streams (3×720p + 19 unknown), zero above 720p. Invalid segment falls back to the unfiltered response (same 76,652-byte body).
+- Subtitle-filter check (2026-11-05): unfiltered `tt0133093` had 49 streams; `maxRes:720` returned 23 with zero >720p. The subtitle language filter previously stripped every track because providers emit `English`/`Urdu`/`Brazilian` while config uses ISO codes; fixed by `LANGUAGE_ALIASES` in `src/addon/userConfig.ts` (full names now match), covered by `tests/userConfig.test.ts`.
 - Snapshot activated with **51** scrapers, 51/51 files downloaded (~663 KB), zero load failures.
 - Snapshot SHA observed: `5408da4d764564f088d3759e0d01afadfa28a91ce30347be5b00264559a151c6`.
 - Movie `tt0133093` (TMDB 603) → 49-54 direct provider streams.
@@ -62,6 +63,7 @@ Secrets:
 - **Two-pass settings.** Providers read `TMDB_API_KEY`/`SCRAPER_SETTINGS` at top level and optionally expose `onSettings()` defaults; env overrides win.
 - **Snapshot swap is atomic and immutable.** A failed refresh leaves the old snapshot active. Never mutate loaded scrapers/snapshots in place.
 - **Always HTTP 200 on `/stream`.** Invalid ids, missing TMDB ids, Codeberg outages, and provider failures return `{"streams":[]}`.
+- **Language matching normalizes names.** Provider subtitle languages are display names; `userConfig` maps common names to ISO codes (and compares base tags) so `en` matches `English` and `pt` matches `Brazilian Portuguese`.
 - **Per-user filters via URL segment, vega-style.** `/<config>/manifest.json` carries a validated base64url JSON config; filtering runs in the route after the shared pipeline cache, so upstream work is never duplicated per user. Manifests are also served at `/manifest.json` (defaults) and the gear opens `/<config>/configure`.
 
 ## Deployment pitfalls already hit and fixed
@@ -77,7 +79,7 @@ Secrets:
 ## Open follow-ups
 
 - Optionally set `TMDB_API_KEY` in Vercel (recommended if the embedded fallback key is rate-limited).
-- Optionally set `SCRAPER_SETTINGS_JSON` for provider toggles (jyniq, mavonyx, etc.) and `DISABLED_SCRAPERS` for noisy providers.
+- `SCRAPER_SETTINGS_JSON` now carries the `fjoral`/`pynvix` credentials; add preference toggles (jyniq, mavonyx, etc.) and `DISABLED_SCRAPERS` as needed.
 - Monitor the Vercel AUP risk: scraping/proxying is prohibited and Hobby is non-commercial. The owner explicitly accepted this risk.
 - Cold instances always re-download the snapshot; if latency becomes a problem, consider a longer `STREAM_CACHE_TTL_MS` or an external cache, not a larger `GLOBAL_DEADLINE_MS` (Vercel caps at 60 s).
 - `SCRAPER_TIMEOUT_MS` is currently a configuration hint; the pipeline's effective per-provider timeout is the remaining global deadline.

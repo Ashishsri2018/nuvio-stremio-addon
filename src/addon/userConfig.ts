@@ -92,13 +92,100 @@ export function parseUserConfig(segment: string | undefined): UserConfig {
   };
 }
 
+const LANGUAGE_ALIASES: Record<string, string> = {
+  english: "en",
+  urdu: "ur",
+  arabic: "ar",
+  bengali: "bn",
+  indonesian: "id",
+  spanish: "es",
+  french: "fr",
+  portuguese: "pt",
+  brazilian: "pt-br",
+  "brazilian portuguese": "pt-br",
+  turkish: "tr",
+  chinese: "zh",
+  croatian: "hr",
+  danish: "da",
+  filipino: "fil",
+  tagalog: "fil",
+  finnish: "fi",
+  thai: "th",
+  german: "de",
+  hindi: "hi",
+  japanese: "ja",
+  korean: "ko",
+  tamil: "ta",
+  telugu: "te",
+  malayalam: "ml",
+  punjabi: "pa",
+  marathi: "mr",
+  gujarati: "gu",
+  russian: "ru",
+  italian: "it",
+  dutch: "nl",
+  polish: "pl",
+  swedish: "sv",
+  norwegian: "no",
+  greek: "el",
+  hebrew: "he",
+  czech: "cs",
+  hungarian: "hu",
+  romanian: "ro",
+  ukrainian: "uk",
+  vietnamese: "vi",
+  malay: "ms",
+  persian: "fa",
+  farsi: "fa",
+  swahili: "sw",
+  afrikaans: "af",
+  serbian: "sr",
+  bulgarian: "bg",
+  slovak: "sk",
+  slovenian: "sl",
+  lithuanian: "lt",
+  latvian: "lv",
+  estonian: "et",
+  catalan: "ca",
+  icelandic: "is",
+  irish: "ga",
+  welsh: "cy",
+  albanian: "sq",
+  bosnian: "bs",
+  macedonian: "mk",
+  nepali: "ne",
+  sinhala: "si",
+  khmer: "km",
+  lao: "lo",
+  burmese: "my",
+  georgian: "ka",
+  armenian: "hy",
+  azerbaijani: "az",
+  kazakh: "kk",
+  uzbek: "uz",
+  mongolian: "mn",
+  amharic: "am",
+  somali: "so",
+  yoruba: "yo",
+  hausa: "ha",
+  zulu: "zu",
+  xhosa: "xh",
+};
+
+function normalizeLanguage(value: string): string {
+  const lang = value.trim().toLowerCase().replace(/_/g, "-");
+  if (!lang) return "";
+  return LANGUAGE_ALIASES[lang] ?? lang;
+}
+
 function languageMatches(trackLang: string, wanted: readonly string[]): boolean {
-  const lang = trackLang.trim().toLowerCase().replace(/_/g, "-");
+  const lang = normalizeLanguage(trackLang);
   if (!lang) return false;
   const base = lang.split("-")[0];
   return wanted.some((candidate) => {
-    const wantedBase = candidate.split("-")[0];
-    return lang === candidate || base === wantedBase;
+    const wantedLang = normalizeLanguage(candidate);
+    const wantedBase = wantedLang.split("-")[0];
+    return lang === wantedLang || base === wantedBase;
   });
 }
 

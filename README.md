@@ -40,7 +40,7 @@ Invalid ids, unresolvable TMDB ids, missing snapshots, and provider failures all
 | Include unknown resolution | On | Keeps streams whose quality cannot be inferred. |
 | Maximum file size | Any | Drops streams whose title-inferred size exceeds the cap. |
 | Include unknown size | On | Keeps streams with no size in the title. |
-| Subtitle languages | Any | Keeps only matching subtitle tracks; streams without subtitles are unchanged. |
+| Subtitle languages | Any | Keeps only matching subtitle tracks; streams without subtitles are unchanged. Codes (`en`, `pt-BR`) also match provider-style names (`English`, `Brazilian`). |
 
 Server-wide env settings (`SCRAPER_SETTINGS_JSON`, `DISABLED_SCRAPERS`, `PROXY_ENABLED`, timeouts) still apply to every request. Per-user filters only trim the response.
 
@@ -56,7 +56,7 @@ Non-secret defaults live in `deploy/vercel.env` and are applied with `scripts/ap
 | `NUVIO_UPDATE_INTERVAL_HOURS` | `24` | 1-168 |
 | `NUVIO_CACHE_DIR` | `$TMPDIR/nuvio-addon` | writable directory |
 | `NUVIO_CONCURRENCY` | `8` | provider file downloads |
-| `SCRAPER_CONCURRENCY` | `12` | provider fan-out |
+| `SCRAPER_CONCURRENCY` | `12` | provider fan-out, 1-60 (production uses `60`) |
 | `SCRAPER_TIMEOUT_MS` | `12000` | per provider deadline hint |
 | `GLOBAL_DEADLINE_MS` | `20000` | partial results at deadline |
 | `HTTP_TIMEOUT_MS` | `15000` | internal and provider fetch timeout |
@@ -76,9 +76,13 @@ Example `SCRAPER_SETTINGS_JSON` (env overrides win over each provider's `onSetti
 ```json
 {
   "jyniq": { "minSeconds": "900" },
-  "mavonyx": { "res_2160p": true, "res_1080p": true, "res_720p": false }
+  "mavonyx": { "res_2160p": true, "res_1080p": true, "res_720p": false },
+  "fjoral": { "cinemaTvToken": "<cookie/token>" },
+  "pynvix": { "uiToken": "<FebBox ui cookie>" }
 }
 ```
+
+`fjoral` and `pynvix` return no streams unless their token is set; all other providers work without credentials (43 read `TMDB_API_KEY` but embed a working fallback).
 
 ## Local development
 

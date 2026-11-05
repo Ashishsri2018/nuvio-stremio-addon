@@ -44,6 +44,7 @@ npm start          # node dist/src/local.js after build
 
 - Provider media types differ: Stremio uses `"series"`, Nuvio expects `"tv"`.
 - The user config segment is the first path segment and applies only to response filtering in `src/addon/app.ts`, after the shared, unfiltered pipeline cache. Keep the manifest on both `/manifest.json` and `/:config/manifest.json`, and the configure page on `/configure` and `/:config/configure` (Stremio's gear opens the prefixed one).
+- Subtitle languages arrive as display names (`English`, `Brazilian`) from providers but as ISO codes in user config. `LANGUAGE_ALIASES` in `src/addon/userConfig.ts` maps names to codes; keep it updated when new provider language labels appear. `SCRAPER_CONCURRENCY` is capped at 60 in `src/config.ts`.
 - Providers read `TMDB_API_KEY` and `SCRAPER_SETTINGS` at module top level. Settings are applied in two passes (`onSettings` defaults first, env overrides win); re-evaluate the module if the merged settings change.
 - Some providers accept `supportedTypes: ["series"]`; `scraperSupports` treats `tv` and `series` as equivalent for Stremio series.
 - `SCRAPER_TIMEOUT_MS` is a hint; the pipeline's effective per-provider timeout is the remaining `GLOBAL_DEADLINE_MS`.
