@@ -29,7 +29,7 @@ Working notes for continuity. Update this file after deployment, configuration, 
 
 Eleven non-secret variables from `deploy/vercel.env` were applied to Production with `scripts/apply-vercel-env.sh`:
 
-`LOG_LEVEL=info`, `NUVIO_SOURCE=eclipsia/nuvio-plugin`, `NUVIO_BRANCH=main`, `NUVIO_UPDATE_INTERVAL_HOURS=24`, `NUVIO_CONCURRENCY=8`, `SCRAPER_CONCURRENCY=60`, `SCRAPER_TIMEOUT_MS=12000`, `GLOBAL_DEADLINE_MS=25000`, `HTTP_TIMEOUT_MS=15000`, `STREAM_CACHE_TTL_MS=60000`, `PROXY_ENABLED=true`.
+`LOG_LEVEL=info`, `NUVIO_SOURCE=eclipsia/nuvio-plugin`, `NUVIO_BRANCH=main`, `NUVIO_UPDATE_INTERVAL_HOURS=24`, `NUVIO_CONCURRENCY=8`, `SCRAPER_CONCURRENCY=60`, `SCRAPER_TIMEOUT_MS=12000`, `GLOBAL_DEADLINE_MS=30000`, `HTTP_TIMEOUT_MS=15000`, `STREAM_CACHE_TTL_MS=60000`, `PROXY_ENABLED=true`.
 
 Secrets:
 
@@ -50,7 +50,7 @@ Secrets:
 - `behaviorHints.proxyHeaders.request` present with `PROXY_ENABLED=true`; URLs point at provider hosts (0 addon-hosted URLs).
 - `/health` → `status: ok`, `scraperCount: 51`, active SHA and `fetchedAt`.
 - Cron endpoint: 401 without/with a wrong Bearer token; 200 with the secret and a forced refresh (~9 s). One caveat: the forced refresh re-downloads all provider files even when the head SHA is unchanged.
-- Cold stream request: ~26-28 s (snapshot download + fan-out). Warm request: bounded by `GLOBAL_DEADLINE_MS` (20 s) plus mapping.
+- Cold stream request: ~26-28 s (snapshot download + fan-out). Warm request: bounded by `GLOBAL_DEADLINE_MS` (30 s) plus mapping.
 - Note: Vercel instruments outbound `fetch` with `x-vercel-id`/`x-invocation-id`; provider headers surfaced these, so they can appear inside `proxyHeaders`.
 
 ## Decisions and rationale
@@ -58,7 +58,7 @@ Secrets:
 - **Standalone addon, not a Nuvio mirror.** Nuvio's `manifest.json` is not a Stremio manifest; providers must be invoked server-side with TMDB ids.
 - **TMDB via Cinemeta first.** Cinemeta's `meta.moviedb_id` avoids a TMDB dependency for most requests; `/find` is only a fallback when `TMDB_API_KEY` exists.
 - **Direct URLs + proxyHeaders.** No addon proxy route, no URL rewriting. `PROXY_ENABLED` only gates `behaviorHints.proxyHeaders.request`.
-- **`GLOBAL_DEADLINE_MS=25000` (2026-11-05).** Raised from 20 s to give slow providers more time while keeping cold requests (snapshot download + fan-out) under Vercel's 60 s `maxDuration`. Do not exceed 25 s without rechecking cold latency.
+- **`GLOBAL_DEADLINE_MS=30000` (2026-11-05).** Raised from 20 s to 25 s and then 30 s because stream coverage is prioritized over latency. 30 s is the safe ceiling: a slow snapshot download was once ~26 s and 26 + 30 ≈ 56 s, under Vercel's 60 s `maxDuration`. Measured cold TTFB at 25 s was 31-35 s (snapshot ~6-9 s + fan-out); warm uncached ~26-31 s; same-title cache ~1-2 s. Do not exceed 30 s without rechecking cold latency. `SCRAPER_TIMEOUT_MS` is unused, and `HTTP_TIMEOUT_MS=15000` remains per-request.
 - **24 h refresh with request-time TTL.** The TTL check in `ensure()` is the guarantee. The Vercel cron is best-effort prewarming because it only reaches one instance.
 - **`/tmp` disk cache.** Vercel's only writable path; helps warm instances and avoids re-downloading after a restart within the same instance.
 - **Two-pass settings.** Providers read `TMDB_API_KEY`/`SCRAPER_SETTINGS` at top level and optionally expose `onSettings()` defaults; env overrides win.

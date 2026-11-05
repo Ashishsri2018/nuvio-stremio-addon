@@ -58,7 +58,7 @@ Non-secret defaults live in `deploy/vercel.env` and are applied with `scripts/ap
 | `NUVIO_CONCURRENCY` | `8` | provider file downloads |
 | `SCRAPER_CONCURRENCY` | `12` | provider fan-out, 1-60 (production uses `60`) |
 | `SCRAPER_TIMEOUT_MS` | `12000` | per provider deadline hint |
-| `GLOBAL_DEADLINE_MS` | `20000` | partial results at deadline (production uses `25000`) |
+| `GLOBAL_DEADLINE_MS` | `20000` | partial results at deadline (production uses `30000`) |
 | `HTTP_TIMEOUT_MS` | `15000` | internal and provider fetch timeout |
 | `STREAM_CACHE_TTL_MS` | `60000` | in-memory; 0 disables |
 | `TMDB_API_KEY` | empty | optional; providers embed a fallback key |
@@ -134,7 +134,7 @@ A cold function instance re-downloads the 51-provider snapshot, so the first str
 
 ## Limits and failure behavior
 
-- `GLOBAL_DEADLINE_MS` (20 s) bounds fan-out; finished providers are returned as partial results.
+- `GLOBAL_DEADLINE_MS` (30 s in production) bounds fan-out; finished providers are returned as partial results.
 - At most 20 streams per provider and 300 overall, deduped by URL and sorted by inferred quality.
 - Per-install URL filters are applied after the shared pipeline cache, so different filter segments reuse the same upstream results.
 - Provider failures are logged and skipped; one bad scraper never fails a request.
