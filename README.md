@@ -61,11 +61,17 @@ Verification: `npm run typecheck && npm test && npm run build`. Tests use local 
 
 ## Deployment
 
+The Vercel project must use the `Other` framework preset, because the Node preset treats `src/local.ts` as an Express entrypoint and skips the `api/` functions:
+
 ```bash
+vercel link --yes --project nuvio-stremio-addon
+vercel project update nuvio-stremio-addon --framework other --yes
 ./scripts/apply-vercel-env.sh
 openssl rand -hex 32 | vercel env add CRON_SECRET production
 vercel --prod --yes
 ```
+
+`vercel.json` sets `outputDirectory` to `public/` (kept with a placeholder) so the static stage and the `api/` functions build together. The cron endpoint is `GET /api/cron/refresh` and requires `Authorization: Bearer $CRON_SECRET`, which Vercel sends automatically.
 
 Vercel Git integration deploys pushes to `main`; GitHub Actions runs typecheck, tests, and build. If Git integration is unavailable, use `vercel --prod --yes` from this directory.
 

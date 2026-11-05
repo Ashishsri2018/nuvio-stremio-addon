@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "outputDirectory": "public",
   "rewrites": [
     { "source": "/manifest.json", "destination": "/api/index" },
     { "source": "/stream/:path*", "destination": "/api/index" },
