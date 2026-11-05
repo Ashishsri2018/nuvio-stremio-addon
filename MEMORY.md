@@ -29,7 +29,7 @@ Working notes for continuity. Update this file after deployment, configuration, 
 
 Eleven non-secret variables from `deploy/vercel.env` were applied to Production with `scripts/apply-vercel-env.sh`:
 
-`LOG_LEVEL=info`, `NUVIO_SOURCE=eclipsia/nuvio-plugin`, `NUVIO_BRANCH=main`, `NUVIO_UPDATE_INTERVAL_HOURS=24`, `NUVIO_CONCURRENCY=8`, `SCRAPER_CONCURRENCY=60`, `SCRAPER_TIMEOUT_MS=12000`, `GLOBAL_DEADLINE_MS=20000`, `HTTP_TIMEOUT_MS=15000`, `STREAM_CACHE_TTL_MS=60000`, `PROXY_ENABLED=true`.
+`LOG_LEVEL=info`, `NUVIO_SOURCE=eclipsia/nuvio-plugin`, `NUVIO_BRANCH=main`, `NUVIO_UPDATE_INTERVAL_HOURS=24`, `NUVIO_CONCURRENCY=8`, `SCRAPER_CONCURRENCY=60`, `SCRAPER_TIMEOUT_MS=12000`, `GLOBAL_DEADLINE_MS=25000`, `HTTP_TIMEOUT_MS=15000`, `STREAM_CACHE_TTL_MS=60000`, `PROXY_ENABLED=true`.
 
 Secrets:
 
@@ -58,6 +58,7 @@ Secrets:
 - **Standalone addon, not a Nuvio mirror.** Nuvio's `manifest.json` is not a Stremio manifest; providers must be invoked server-side with TMDB ids.
 - **TMDB via Cinemeta first.** Cinemeta's `meta.moviedb_id` avoids a TMDB dependency for most requests; `/find` is only a fallback when `TMDB_API_KEY` exists.
 - **Direct URLs + proxyHeaders.** No addon proxy route, no URL rewriting. `PROXY_ENABLED` only gates `behaviorHints.proxyHeaders.request`.
+- **`GLOBAL_DEADLINE_MS=25000` (2026-11-05).** Raised from 20 s to give slow providers more time while keeping cold requests (snapshot download + fan-out) under Vercel's 60 s `maxDuration`. Do not exceed 25 s without rechecking cold latency.
 - **24 h refresh with request-time TTL.** The TTL check in `ensure()` is the guarantee. The Vercel cron is best-effort prewarming because it only reaches one instance.
 - **`/tmp` disk cache.** Vercel's only writable path; helps warm instances and avoids re-downloading after a restart within the same instance.
 - **Two-pass settings.** Providers read `TMDB_API_KEY`/`SCRAPER_SETTINGS` at top level and optionally expose `onSettings()` defaults; env overrides win.

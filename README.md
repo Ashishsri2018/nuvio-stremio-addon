@@ -58,7 +58,7 @@ Non-secret defaults live in `deploy/vercel.env` and are applied with `scripts/ap
 | `NUVIO_CONCURRENCY` | `8` | provider file downloads |
 | `SCRAPER_CONCURRENCY` | `12` | provider fan-out, 1-60 (production uses `60`) |
 | `SCRAPER_TIMEOUT_MS` | `12000` | per provider deadline hint |
-| `GLOBAL_DEADLINE_MS` | `20000` | partial results at deadline |
+| `GLOBAL_DEADLINE_MS` | `20000` | partial results at deadline (production uses `25000`) |
 | `HTTP_TIMEOUT_MS` | `15000` | internal and provider fetch timeout |
 | `STREAM_CACHE_TTL_MS` | `60000` | in-memory; 0 disables |
 | `TMDB_API_KEY` | empty | optional; providers embed a fallback key |
