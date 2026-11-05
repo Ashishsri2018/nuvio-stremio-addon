@@ -7,7 +7,7 @@ This addon exposes the `eclipsia/nuvio-plugin` provider bundle as a standard Str
 Two policies shape the design:
 
 1. **Direct URLs.** Provider media URLs are returned untouched. When `PROXY_ENABLED=true`, provider request headers are attached as `behaviorHints.proxyHeaders.request`; the addon has no `/proxy` route and never rewrites URLs.
-2. **Environment-only configuration.** There is no `/configure` page and no database. All settings come from env vars validated by zod at startup.
+2. **Env-only server configuration, URL-embedded user filters.** Server settings come from env vars validated by zod at startup; there is no database. Per-install stream filters live in a base64url path segment (`/<config>/manifest.json`), are parsed per request, and are never stored.
 
 ## Component map
 
@@ -19,10 +19,12 @@ src/
   logger.ts              structured JSON logger with key/URL redaction
   types.ts               Stremio, Nuvio, config, health types
   addon/
-    app.ts               Express routes, CORS, always-200 semantics
+    app.ts               Express routes, CORS, always-200 semantics, per-request filtering
     manifest.ts          static Stremio manifest
+    configure.ts         static /configure HTML page
+    userConfig.ts        base64url filter segment: schema, encode/parse, filterStreams
     parseId.ts           tt... / tt...:S:E parser
-    mapStreams.ts        Nuvio -> Stremio mapping, quality sort, dedupe
+    mapStreams.ts        Nuvio -> Stremio mapping, quality/size inference, sort, dedupe
   cinemeta/client.ts     IMDb -> TMDB via Cinemeta, TMDB /find fallback
   source/codeberg.ts     head resolution, raw downloads, retries, size/path limits
   nuvio/
@@ -42,7 +44,7 @@ api/
 ## Request lifecycle
 
 ```
-GET /stream/movie/tt0133093.json
+GET /stream/movie/tt0133093.json          (or /<config>/stream/...)
         |
         v
 parseStreamId(type, id) -- invalid --> 200 {"streams":[]}
@@ -72,8 +74,14 @@ StreamPipeline.handle(request, signal)
         +--> store in stream cache (STREAM_CACHE_TTL_MS, max 500 entries)
         |
         v
+filterStreams(streams, parseUserConfig(req.params.config))
+        |      resolution bounds, unknown-quality toggle, size cap,
+        |      subtitle language trimming; invalid segment -> defaults
+        v
 200 {"streams":[...]} (always)
 ```
+
+The pipeline cache stores unfiltered streams keyed by `type:imdbId:season:episode`, so every config segment shares the same upstream work; filtering is applied per request.
 
 `StreamRequest.type` is Stremio's `"movie"`/`"series"`; the provider-facing media type is `"movie"`/`"tv"`. Series-only ids without a season (`tt...:S`) are accepted and forward `episode === undefined`.
 
@@ -136,14 +144,14 @@ Provider execution is in-process and unsandboxed. The trust boundary is the pinn
 `src/addon/app.ts` builds an Express app with:
 
 - CORS `*` for `GET, HEAD, OPTIONS`; `OPTIONS` returns 204.
-- `GET /manifest.json` (5-minute cache), `GET /stream/:type/:id.json` and `/stream/:type/:id` (`no-store`), `GET /health` (`no-store`).
-- Stream requests catch all pipeline errors and return HTTP 200 with `{streams: []}`. Invalid ids short-circuit without touching the network. `HEAD` on a stream route returns 200 without running the pipeline.
+- `GET /manifest.json` and `GET /:config/manifest.json` (5-minute cache), `GET /configure` and `GET /:config/configure` (HTML, 5-minute cache), `GET /stream/:type/:id.json`, `GET /:config/stream/:type/:id.json`, and the non-`.json` variants (`no-store`), `GET /health` (`no-store`).
+- Stream requests catch all pipeline errors and return HTTP 200 with `{streams: []}`. Invalid ids short-circuit without touching the network. `HEAD` on a stream route returns 200 without running the pipeline. After the pipeline resolves, `filterStreams` applies the URL segment's user config; an invalid segment yields unfiltered defaults.
 - Unknown routes return JSON 404; a final error handler returns JSON 500 only if headers were not sent.
 
 ## Vercel deployment shape
 
 - `api/index.ts` calls `getRuntime()` and default-exports the Express app. `api/cron/refresh.ts` verifies `Authorization: Bearer $CRON_SECRET`, calls `snapshots.refresh(true)`, and returns the health report.
-- `vercel.json` rewrites `/manifest.json`, `/stream/:path*`, and `/health` to `/api/index`; sets `maxDuration: 60` for both functions; schedules `/api/cron/refresh` at `0 3 * * *`; sets `outputDirectory: public`.
+- `vercel.json` rewrites `/manifest.json`, `/configure`, `/stream/:path*`, `/health`, `/:config/manifest.json`, `/:config/configure`, and `/:config/stream/:path*` to `/api/index`; sets `maxDuration: 60` for both functions; schedules `/api/cron/refresh` at `0 3 * * *`; sets `outputDirectory: public`. `/api/cron/refresh` remains a filesystem route and is not matched by these patterns.
 - The project must use the **Other** framework preset. The Node preset looks for a root/`src` `app|index|server|main` entrypoint that imports Express and otherwise fails with `No entrypoint found which imports express`; our Express app lives in `src/addon/app.ts`, so the preset is cleared with `vercel project update nuvio-stremio-addon --framework other --yes`.
 - `public/` exists only to satisfy the static stage that the Other preset builds alongside `api/` functions.
 - The only writable path is `/tmp`, so `NUVIO_CACHE_DIR` defaults to `/tmp/nuvio-addon`. The cron prewarms whichever instance receives it; it cannot warm all instances.
@@ -181,8 +189,9 @@ Vitest runs `tests/**/*.test.ts` in Node with a 30 s timeout. All HTTP is local 
 | `loader.test.ts` | TMDB key/settings/cheerio injection, `onSettings` defaults, missing `getStreams`, unknown require, supported types |
 | `snapshot.test.ts` | download/evaluate/persist/disk reload, stale fallback, branch fallback, disabled scrapers |
 | `mapStreams.test.ts` | direct mapping, proxy gating, header filtering, subtitles, dedupe/sort, limits |
+| `userConfig.test.ts` | segment encode/parse, invalid/versioned defaults, resolution/size/subtitle filtering |
 | `pipeline.test.ts` | TMDB resolution, series args, partial results, deadline, caching, abort, empty snapshot |
-| `routes.test.ts` | manifest, movie/series routes, invalid ids, thrown pipeline, HEAD, health, CORS, 404 |
+| `routes.test.ts` | manifest, configure page, config-prefixed routes, URL filters, movie/series routes, invalid ids, thrown pipeline, HEAD, health, CORS, 404 |
 
 ## Security notes
 

@@ -33,7 +33,7 @@ npm start          # node dist/src/local.js after build
 - **ESM NodeNext.** Relative imports require `.js` extensions, including in tests (`../src/foo.js`).
 - **Stream routes always return HTTP 200.** Invalid ids, unresolvable TMDB ids, missing snapshots, and provider failures return `{"streams":[]}`. Never introduce a 4xx/5xx for a stream request.
 - **Direct URLs only.** Provider media URLs are returned untouched. There is no `/proxy` route and no rewriting. `PROXY_ENABLED` only gates `behaviorHints.proxyHeaders.request`.
-- **Config is env-only.** All settings are validated by zod in `src/config.ts`; invalid values abort startup. There is no `/configure` page.
+- **Server config is env-only; per-install filters live in the URL.** All env settings are validated by zod in `src/config.ts`; invalid values abort startup. Per-install stream filters are a base64url JSON path segment (`/<config>/manifest.json`, parsed in `src/addon/userConfig.ts`). Missing or invalid segments fall back to unfiltered defaults and must never cause an error. Nothing is stored server-side.
 - **Snapshots are immutable.** Build a complete new snapshot, then swap the in-memory reference. Never mutate loaded scrapers or an active snapshot. Keep disk writes atomic (`src/util/fs.ts`).
 - **Use `nativeFetch` for internal HTTP.** Provider code receives the wrapped `fetch` from `src/nuvio/loader.ts`. Do not replace `globalThis.fetch`; internal calls (Codeberg, Cinemeta, TMDB) must use `nativeFetch` from `src/util/nativeFetch.ts`.
 - **Keep the `require` whitelist narrow** (`cheerio`, `cheerio-without-node-native`, `crypto-js`). Providers run without a sandbox; adding modules broadens third-party capabilities.
@@ -43,6 +43,7 @@ npm start          # node dist/src/local.js after build
 ## Gotchas
 
 - Provider media types differ: Stremio uses `"series"`, Nuvio expects `"tv"`.
+- The user config segment is the first path segment and applies only to response filtering in `src/addon/app.ts`, after the shared, unfiltered pipeline cache. Keep the manifest on both `/manifest.json` and `/:config/manifest.json`, and the configure page on `/configure` and `/:config/configure` (Stremio's gear opens the prefixed one).
 - Providers read `TMDB_API_KEY` and `SCRAPER_SETTINGS` at module top level. Settings are applied in two passes (`onSettings` defaults first, env overrides win); re-evaluate the module if the merged settings change.
 - Some providers accept `supportedTypes: ["series"]`; `scraperSupports` treats `tv` and `series` as equivalent for Stremio series.
 - `SCRAPER_TIMEOUT_MS` is a hint; the pipeline's effective per-provider timeout is the remaining `GLOBAL_DEADLINE_MS`.
@@ -61,6 +62,7 @@ Active production: `https://nuvio-stremio-addon-nine.vercel.app` (see MEMORY.md)
 - Pushing to `main` runs CI and triggers a Vercel production deploy through Git integration. Verify after deploy:
   ```bash
   curl https://nuvio-stremio-addon-nine.vercel.app/manifest.json
+  curl -i https://nuvio-stremio-addon-nine.vercel.app/configure
   curl 'https://nuvio-stremio-addon-nine.vercel.app/stream/movie/tt0133093.json'
   curl 'https://nuvio-stremio-addon-nine.vercel.app/stream/series/tt0944947:1:1.json'
   curl https://nuvio-stremio-addon-nine.vercel.app/health

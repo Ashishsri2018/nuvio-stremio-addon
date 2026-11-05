@@ -12,6 +12,7 @@ Working notes for continuity. Update this file after deployment, configuration, 
 | Vercel project id | `prj_TN1aeAtSdDRDSFUWFqA7w5gplUI4` |
 | Production URL | `https://nuvio-stremio-addon-nine.vercel.app` |
 | Install URL | `https://nuvio-stremio-addon-nine.vercel.app/manifest.json` |
+| Configure page | `https://nuvio-stremio-addon-nine.vercel.app/configure` (per-install filters in the URL) |
 | Framework preset | **Other** (required, see pitfalls) |
 | Vercel Node runtime | 26.x (project default); `package.json` requires >= 22 |
 | Upstream source | `eclipsia/nuvio-plugin`, branch `main` |
@@ -22,7 +23,7 @@ Working notes for continuity. Update this file after deployment, configuration, 
 - GitHub Actions CI passed for that commit (`typecheck`, `test`, `build`).
 - Vercel Git integration is connected: pushes to `main` create production deployments automatically. The Git-triggered deployment for `763dec1` was Ready and aliased to the production URL.
 - The daily cron `GET /api/cron/refresh` (`0 3 * * *`, maxDuration 60) is registered.
-- No `/configure` page; configuration is env-only by design.
+- `/configure` builds per-install filter URLs (max/min resolution, unknown-quality toggle, max size, subtitle languages). Filters are base64url JSON path segments; nothing is stored server-side and invalid segments fall back to defaults.
 
 ## Production environment
 
@@ -59,6 +60,7 @@ Secrets:
 - **Two-pass settings.** Providers read `TMDB_API_KEY`/`SCRAPER_SETTINGS` at top level and optionally expose `onSettings()` defaults; env overrides win.
 - **Snapshot swap is atomic and immutable.** A failed refresh leaves the old snapshot active. Never mutate loaded scrapers/snapshots in place.
 - **Always HTTP 200 on `/stream`.** Invalid ids, missing TMDB ids, Codeberg outages, and provider failures return `{"streams":[]}`.
+- **Per-user filters via URL segment, vega-style.** `/<config>/manifest.json` carries a validated base64url JSON config; filtering runs in the route after the shared pipeline cache, so upstream work is never duplicated per user. Manifests are also served at `/manifest.json` (defaults) and the gear opens `/<config>/configure`.
 
 ## Deployment pitfalls already hit and fixed
 

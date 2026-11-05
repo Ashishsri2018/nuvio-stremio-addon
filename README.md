@@ -4,7 +4,7 @@ Stremio stream addon that downloads the [eclipsia/nuvio-plugin](https://codeberg
 
 Install: `https://nuvio-stremio-addon-nine.vercel.app/manifest.json`
 
-There is no `/configure` page. All settings are environment-driven.
+To filter streams per install, open `https://nuvio-stremio-addon-nine.vercel.app/configure` and install the URL it generates (for example, a 720p maximum). Filters travel in the URL; nothing is stored server-side.
 
 ## How it works
 
@@ -19,11 +19,30 @@ There is no `/configure` page. All settings are environment-driven.
 | Route | Behavior |
 | --- | --- |
 | `GET /manifest.json` | Static Stremio manifest, `Cache-Control: public, max-age=300`. |
+| `GET /:config/manifest.json` | Same manifest under a filter segment. |
 | `GET /stream/:type/:id.json` | Movie (`tt...`) or series (`tt...:S:E`) streams, always HTTP 200, `no-store`. |
+| `GET /:config/stream/:type/:id.json` | Same stream route, filtered by the URL segment. |
+| `GET /configure` | HTML page that builds a filtered install URL. |
+| `GET /:config/configure` | Same page, prefilled from the segment (Stremio's gear icon). |
 | `GET /health` | Snapshot status: `status`, `sha`, `fetchedAt`, `scraperCount`, `lastError`, `refreshing`. |
 | `GET /api/cron/refresh` | Forces a snapshot refresh; requires `Authorization: Bearer $CRON_SECRET`. |
 
 Invalid ids, unresolvable TMDB ids, missing snapshots, and provider failures all return `{"streams":[]}` with HTTP 200.
+
+## User configuration
+
+`/configure` offers per-install stream filters. The page encodes them as `{v:1,...}` JSON in base64url and produces `/<segment>/manifest.json`; Stremio then requests `/<segment>/stream/...` and the addon filters the pipeline result before responding. Defaults link to plain `/manifest.json`. An absent or invalid segment falls back to unfiltered defaults and never causes an error. Settings are not stored on the server.
+
+| Filter | Default | Effect |
+| --- | --- | --- |
+| Maximum resolution | Any | Drops streams whose inferred quality is above the cap (480, 720, 1080, 2160). |
+| Minimum resolution | Any | Drops streams below the floor. |
+| Include unknown resolution | On | Keeps streams whose quality cannot be inferred. |
+| Maximum file size | Any | Drops streams whose title-inferred size exceeds the cap. |
+| Include unknown size | On | Keeps streams with no size in the title. |
+| Subtitle languages | Any | Keeps only matching subtitle tracks; streams without subtitles are unchanged. |
+
+Server-wide env settings (`SCRAPER_SETTINGS_JSON`, `DISABLED_SCRAPERS`, `PROXY_ENABLED`, timeouts) still apply to every request. Per-user filters only trim the response.
 
 ## Configuration
 
@@ -67,6 +86,7 @@ Example `SCRAPER_SETTINGS_JSON` (env overrides win over each provider's `onSetti
 npm install
 NUVIO_CACHE_DIR=/tmp/nuvio-test PROXY_ENABLED=true npm run dev
 curl localhost:7000/manifest.json
+curl localhost:7000/configure
 curl 'localhost:7000/stream/movie/tt0133093.json'
 curl 'localhost:7000/stream/series/tt0944947:1:1.json'
 curl localhost:7000/health
@@ -76,7 +96,7 @@ curl localhost:7000/health
 
 ## Tests and CI
 
-- `npm test` runs Vitest with 41 tests across 7 files. Tests use local fixture HTTP servers only, so they need no network.
+- `npm test` runs Vitest with 64 tests across 8 files. Tests use local fixture HTTP servers only, so they need no network.
 - `npm run typecheck` covers `src/` and `api/`; `tests/` are checked by Vitest only.
 - GitHub Actions (`.github/workflows/ci.yml`) runs `npm ci`, `npm run typecheck`, `npm test`, and `npm run build` on every push to `main` and every PR. **CI is the source of truth** for compile and test failures.
 
@@ -112,6 +132,7 @@ A cold function instance re-downloads the 51-provider snapshot, so the first str
 
 - `GLOBAL_DEADLINE_MS` (20 s) bounds fan-out; finished providers are returned as partial results.
 - At most 20 streams per provider and 300 overall, deduped by URL and sorted by inferred quality.
+- Per-install URL filters are applied after the shared pipeline cache, so different filter segments reuse the same upstream results.
 - Provider failures are logged and skipped; one bad scraper never fails a request.
 - Codeberg outages serve the last cached snapshot. With no snapshot, streams are empty and the request still returns 200.
 

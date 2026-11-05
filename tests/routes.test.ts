@@ -74,11 +74,56 @@ describe("addon routes", () => {
       types: string[];
       resources: string[];
       idPrefixes: string[];
+      behaviorHints: { configurable?: boolean };
     };
     expect(manifest.id).toBe("community.nuvio.stremio");
     expect(manifest.types).toEqual(["movie", "series"]);
     expect(manifest.resources).toEqual(["stream"]);
     expect(manifest.idPrefixes).toEqual(["tt"]);
+    expect(manifest.behaviorHints).toEqual({ configurable: true });
+  });
+
+  it("serves the configure page with and without a config prefix", async () => {
+    const { running } = await createServer();
+    for (const path of ["/configure", "/max/configure"]) {
+      const response = await fetch(`${running.url}${path}`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/html");
+      expect(response.headers.get("cache-control")).toBe("public, max-age=300");
+      expect(await response.text()).toContain("Nuvio Streams");
+    }
+  });
+
+  it("serves the manifest under a config prefix", async () => {
+    const { running } = await createServer();
+    const base = await fetch(`${running.url}/manifest.json`);
+    const prefixed = await fetch(`${running.url}/max/manifest.json`);
+    expect(prefixed.status).toBe(200);
+    expect(await prefixed.json()).toEqual(await base.json());
+  });
+
+  it("applies URL-embedded stream filters", async () => {
+    const { running } = await createServer();
+    const segment = Buffer.from(
+      JSON.stringify({ v: 1, maxRes: 720 }),
+      "utf8",
+    ).toString("base64url");
+
+    const filtered = await fetch(
+      `${running.url}/${segment}/stream/movie/tt0133093.json`,
+    );
+    expect(filtered.status).toBe(200);
+    expect(await filtered.json()).toEqual({ streams: [] });
+
+    const unfiltered = await fetch(`${running.url}/stream/movie/tt0133093.json`);
+    const body = (await unfiltered.json()) as { streams: unknown[] };
+    expect(body.streams).toHaveLength(1);
+
+    const invalid = await fetch(
+      `${running.url}/bm90LWpzb24/stream/movie/tt0133093.json`,
+    );
+    expect(invalid.status).toBe(200);
+    expect(((await invalid.json()) as { streams: unknown[] }).streams).toHaveLength(1);
   });
 
   it("maps movie stream requests", async () => {

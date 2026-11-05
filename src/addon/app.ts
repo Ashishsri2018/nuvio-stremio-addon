@@ -8,8 +8,10 @@ import type {
 import type { AppConfig, LoggerLike, StremioStream } from "../types.js";
 import type { StreamPipeline } from "../nuvio/pipeline.js";
 import type { SnapshotManager } from "../nuvio/snapshot.js";
+import { renderConfigurePage } from "./configure.js";
 import { getManifest } from "./manifest.js";
 import { parseStreamId } from "./parseId.js";
+import { filterStreams, parseUserConfig } from "./userConfig.js";
 
 export interface AppDeps {
   config: AppConfig;
@@ -59,6 +61,7 @@ async function runStreamRequest(
   }
 
   if (res.writableEnded || res.destroyed) return;
+  streams = filterStreams(streams, parseUserConfig(req.params.config));
   res.status(200).json({ streams });
 }
 
@@ -93,10 +96,20 @@ export function createApp(deps: AppDeps): express.Express {
     res.json(getManifest());
   };
   app.get("/manifest.json", serveManifest);
+  app.get("/:config/manifest.json", serveManifest);
+
+  const serveConfigure: RequestHandler = (req, res) => {
+    res.setHeader("Cache-Control", "public, max-age=300");
+    res.type("html").send(renderConfigurePage());
+  };
+  app.get("/configure", serveConfigure);
+  app.get("/:config/configure", serveConfigure);
 
   const streamHandler = createStreamHandler(deps);
-  app.get("/stream/:type/:id.json", streamHandler);
-  app.get("/stream/:type/:id", streamHandler);
+  for (const prefix of ["", "/:config"]) {
+    app.get(`${prefix}/stream/:type/:id.json`, streamHandler);
+    app.get(`${prefix}/stream/:type/:id`, streamHandler);
+  }
 
   app.get("/health", (req, res) => {
     res.setHeader("Cache-Control", "no-store");
