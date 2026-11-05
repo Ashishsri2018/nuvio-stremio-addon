@@ -11,6 +11,8 @@ Read these first:
 1. [MEMORY.md](MEMORY.md) — current deployment state, decisions, and known pitfalls.
 2. [ARCHITECTURE.md](ARCHITECTURE.md) — request flow, snapshot lifecycle, provider runtime, Vercel shape.
 
+**CI is the source of truth.** GitHub Actions (`.github/workflows/ci.yml`) is authoritative for compile, test, and build results; push and let CI verify rather than treating local runs as the gate. There is no lint script.
+
 ## Commands
 
 ```bash
@@ -22,7 +24,7 @@ npm run build      # tsc -> dist/
 npm start          # node dist/src/local.js after build
 ```
 
-- **CI is the source of truth** for compile and test errors. `.github/workflows/ci.yml` runs `npm ci`, `npm run typecheck`, `npm test`, and `npm run build` on pushes to `main` and PRs. There is no lint or format script; don't assume ESLint/Prettier.
+- **CI is the source of truth** for compile and test errors. `.github/workflows/ci.yml` runs `npm ci`, `npm run typecheck`, `npm test`, and `npm run build` on pushes to `main` and PRs. There is no lint or format script; don't assume ESLint/Prettier. Local runs are optional aids, not the gate.
 - Tests use local fixture HTTP servers only. Do not add network-dependent tests.
 - `typecheck` excludes `tests/`; Vitest is the only check for test files.
 
