@@ -19,9 +19,9 @@ Working notes for continuity. Update this file after deployment, configuration, 
 
 ## Current state
 
-- Last code commit verified end-to-end: `763dec1` ("Deploy API functions under the Vercel Other preset").
-- GitHub Actions CI passed for that commit (`typecheck`, `test`, `build`).
-- Vercel Git integration is connected: pushes to `main` create production deployments automatically. The Git-triggered deployment for `763dec1` was Ready and aliased to the production URL.
+- Last code commit verified end-to-end: `10fb616` ("Add /configure page with URL-embedded stream filters").
+- GitHub Actions CI passed for that commit (`typecheck`, `test`, `build`, 64 tests) and Vercel deployed it to Production (`Ready`).
+- Vercel Git integration is connected: pushes to `main` create production deployments automatically.
 - The daily cron `GET /api/cron/refresh` (`0 3 * * *`, maxDuration 60) is registered.
 - `/configure` builds per-install filter URLs (max/min resolution, unknown-quality toggle, max size, subtitle languages). Filters are base64url JSON path segments; nothing is stored server-side and invalid segments fall back to defaults.
 
@@ -39,7 +39,9 @@ Secrets:
 
 ## Verified behavior (2026-11-05)
 
-- `/manifest.json` → 200, id `community.nuvio.stremio`, types `movie`/`series`.
+- `/manifest.json` → 200, id `community.nuvio.stremio`, types `movie`/`series`, `behaviorHints.configurable: true`.
+- `/configure` → 200 HTML; `/<config>/configure` and `/<config>/manifest.json` → 200.
+- URL filter check (2026-11-05): `tt0133093` unfiltered → 51 streams (5×2160p, 24×1080p, 3×720p, 19 unknown); with `maxRes:720` segment `eyJ2IjoxLCJtYXhSZXMiOjcyMH0` → 22 streams (3×720p + 19 unknown), zero above 720p. Invalid segment falls back to the unfiltered response (same 76,652-byte body).
 - Snapshot activated with **51** scrapers, 51/51 files downloaded (~663 KB), zero load failures.
 - Snapshot SHA observed: `5408da4d764564f088d3759e0d01afadfa28a91ce30347be5b00264559a151c6`.
 - Movie `tt0133093` (TMDB 603) → 49-54 direct provider streams.
