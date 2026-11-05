@@ -40,7 +40,10 @@ const HEALTH: HealthReport = {
   refreshing: false,
 };
 
-async function createServer(pipelineHandle?: StreamPipeline["handle"]) {
+async function createServer(
+  pipelineHandle?: StreamPipeline["handle"],
+  providerStats: StreamPipeline["getProviderStats"] = () => ({}),
+) {
   const calls: StreamRequest[] = [];
   const handle =
     pipelineHandle ??
@@ -55,7 +58,7 @@ async function createServer(pipelineHandle?: StreamPipeline["handle"]) {
       ];
     });
 
-  const pipeline = { handle } as unknown as StreamPipeline;
+  const pipeline = { handle, getProviderStats: providerStats } as unknown as StreamPipeline;
   const snapshots = { getHealth: () => HEALTH } as unknown as SnapshotManager;
   const config = await testConfig();
   const app = createApp({ config, logger: silentLogger(), pipeline, snapshots });
@@ -193,7 +196,45 @@ describe("addon routes", () => {
     const response = await fetch(`${running.url}/health`);
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(await response.json()).toEqual(HEALTH);
+    expect(await response.json()).toEqual({ ...HEALTH, providers: {} });
+  });
+
+  it("includes provider stats in health", async () => {
+    const stats = {
+      alpha: {
+        calls: 2,
+        ok: 2,
+        responded: 1,
+        empty: 1,
+        errors: 0,
+        timeouts: 0,
+        skipped: 0,
+        successRate: 1,
+        p50Ms: 10,
+        p95Ms: 20,
+      },
+    };
+    const { running } = await createServer(undefined, () => stats);
+    const response = await fetch(`${running.url}/health`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ...HEALTH, providers: stats });
+  });
+
+  it("falls back when provider stats fail", async () => {
+    const { running } = await createServer(undefined, () => {
+      throw new Error("stats down");
+    });
+    const response = await fetch(`${running.url}/health`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      status: "error",
+      sha: null,
+      fetchedAt: null,
+      scraperCount: 0,
+      lastError: "health check failed",
+      refreshing: false,
+      providers: {},
+    });
   });
 
   it("handles CORS preflight and unknown routes", async () => {

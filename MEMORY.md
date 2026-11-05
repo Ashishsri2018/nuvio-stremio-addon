@@ -24,12 +24,15 @@ Working notes for continuity. Update this file after deployment, configuration, 
 - Vercel Git integration is connected: pushes to `main` create production deployments automatically.
 - The daily cron `GET /api/cron/refresh` (`0 3 * * *`, maxDuration 60) is registered.
 - `/configure` builds per-install filter URLs (max/min resolution, unknown-quality toggle, max size, subtitle languages). Filters are base64url JSON path segments; nothing is stored server-side and invalid segments fall back to defaults.
+- 2026-11-05: TODO #7 observability implemented and verified locally (84 tests; one `nuvio_streams_resolved` summary per request, snapshot `source` on activation, `/health.providers` counters with p50/p95). CI/deploy verification pending.
 
 ## Production environment
 
-Eleven non-secret variables from `deploy/vercel.env` were applied to Production with `scripts/apply-vercel-env.sh`:
+Twelve non-secret variables from `deploy/vercel.env` were applied to Production with `scripts/apply-vercel-env.sh`:
 
-`LOG_LEVEL=info`, `NUVIO_SOURCE=eclipsia/nuvio-plugin`, `NUVIO_BRANCH=main`, `NUVIO_UPDATE_INTERVAL_HOURS=24`, `NUVIO_CONCURRENCY=16`, `SCRAPER_CONCURRENCY=60`, `SCRAPER_TIMEOUT_MS=12000`, `GLOBAL_DEADLINE_MS=30000`, `HTTP_TIMEOUT_MS=15000`, `STREAM_CACHE_TTL_MS=60000`, `PROXY_ENABLED=true`.
+`LOG_LEVEL=info`, `NUVIO_SOURCE=eclipsia/nuvio-plugin`, `NUVIO_BRANCH=main`, `NUVIO_UPDATE_INTERVAL_HOURS=24`, `NUVIO_CONCURRENCY=16`, `SCRAPER_CONCURRENCY=60`, `SCRAPER_TIMEOUT_MS=12000`, `GLOBAL_DEADLINE_MS=30000`, `HTTP_TIMEOUT_MS=15000`, `STREAM_CACHE_TTL_MS=60000`, `PROXY_ENABLED=true`, `DISABLED_SCRAPERS=bdix-cf,bdix-df,bdix-fh`.
+
+Note: `NUVIO_BUNDLED_DIR=snapshot` is in `deploy/vercel.env` but was not present in the Production env on 2026-11-05; applying the full file would add it.
 
 Secrets:
 
@@ -65,6 +68,8 @@ Secrets:
 - **Snapshot swap is atomic and immutable.** A failed refresh leaves the old snapshot active. Never mutate loaded scrapers/snapshots in place.
 - **Always HTTP 200 on `/stream`.** Invalid ids, missing TMDB ids, Codeberg outages, and provider failures return `{"streams":[]}`.
 - **Language matching normalizes names.** Provider subtitle languages are display names; `userConfig` maps common names to ISO codes (and compares base tags) so `en` matches `English` and `pt` matches `Brazilian Portuguese`.
+- **BDIX providers disabled (2026-11-05).** `bdix-cf`, `bdix-df`, and `bdix-fh` target BDIX ISP-internal addresses (`15.1.1.50`, `172.16.50.x`) and `flixhub.net`; they time out from Vercel and normal networks, so they are in `DISABLED_SCRAPERS`.
+- **Observability is per-request logs plus per-instance counters (2026-11-05).** `nuvio_streams_resolved` is logged once per request from `StreamPipeline.handle()` with `cache`/`shared`/`outcome`, `zeroHits`, `failed`, `skipped`, `slowest`, and `durationMs`; cache hits reuse stored metadata. `nuvio_snapshot_activated` carries `source` (`disk`/`bundled`/`network`). `/health.providers` reports counters and nearest-rank p50/p95 from a 100-sample ring buffer; stats reset on cold start. Test count is now 84.
 - **Per-user filters via URL segment, vega-style.** `/<config>/manifest.json` carries a validated base64url JSON config; filtering runs in the route after the shared pipeline cache, so upstream work is never duplicated per user. Manifests are also served at `/manifest.json` (defaults) and the gear opens `/<config>/configure`.
 
 ## Deployment pitfalls already hit and fixed

@@ -28,6 +28,8 @@ const SNAPSHOT_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{6,79}$/;
 const TEMP_MARKER = ".tmp-";
 const LOAD_CONCURRENCY = 8;
 
+export type SnapshotSource = "disk" | "bundled" | "network";
+
 interface DiskState {
   sha: string;
   fetchedAt: number;
@@ -117,9 +119,9 @@ export class SnapshotManager {
     try {
       if (!force) {
         const fresh = await this.loadFromDisk(true);
-        if (fresh) return this.activate(fresh);
+        if (fresh) return this.activate(fresh, "disk");
         const bundled = await this.loadBundled(true);
-        if (bundled) return this.activate(bundled);
+        if (bundled) return this.activate(bundled, "bundled");
       }
 
       const diskState = await this.readState();
@@ -150,7 +152,7 @@ export class SnapshotManager {
         if (disk) {
           const refreshed: NuvioSnapshot = { ...disk, fetchedAt: Date.now() };
           await this.writeState(targetSha, refreshed.fetchedAt);
-          return this.activate(refreshed);
+          return this.activate(refreshed, "disk");
         }
       }
 
@@ -167,7 +169,7 @@ export class SnapshotManager {
         scrapers,
       };
       await this.writeState(targetSha, snapshot.fetchedAt);
-      this.activate(snapshot);
+      this.activate(snapshot, "network");
       await this.cleanupSnapshots(targetSha);
       return snapshot;
     } catch (error) {
@@ -176,7 +178,7 @@ export class SnapshotManager {
         this.logger.warn("nuvio_snapshot_refresh_failed_using_bundled", {
           error: errorMessage(error),
         });
-        return this.activate(bundled);
+        return this.activate(bundled, "bundled");
       }
       this.lastError = errorMessage(error);
       this.logger.error("nuvio_snapshot_refresh_failed", {
@@ -186,10 +188,14 @@ export class SnapshotManager {
     }
   }
 
-  private activate(snapshot: NuvioSnapshot): NuvioSnapshot {
+  private activate(
+    snapshot: NuvioSnapshot,
+    source: SnapshotSource,
+  ): NuvioSnapshot {
     this.snapshot = snapshot;
     this.lastError = null;
     this.logger.info("nuvio_snapshot_activated", {
+      source,
       sha: snapshot.sha,
       scrapers: snapshot.scrapers.length,
       fetchedAt: new Date(snapshot.fetchedAt).toISOString(),

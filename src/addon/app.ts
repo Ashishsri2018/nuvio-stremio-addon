@@ -114,7 +114,10 @@ export function createApp(deps: AppDeps): express.Express {
   app.get("/health", (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     try {
-      res.status(200).json(deps.snapshots.getHealth());
+      res.status(200).json({
+        ...deps.snapshots.getHealth(),
+        providers: deps.pipeline.getProviderStats(),
+      });
     } catch (error) {
       deps.logger.error("health_check_failed", {
         reason: error instanceof Error ? error.name : "unknown",
@@ -126,6 +129,7 @@ export function createApp(deps: AppDeps): express.Express {
         scraperCount: 0,
         lastError: "health check failed",
         refreshing: false,
+        providers: {},
       });
     }
   });

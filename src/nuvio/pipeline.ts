@@ -11,8 +11,13 @@ import {
   mapScraperStreams,
   sortStreams,
 } from "../addon/mapStreams.js";
-import { withTimeout } from "../util/concurrency.js";
+import { TimeoutError, withTimeout } from "../util/concurrency.js";
 import { scraperSupports } from "./loader.js";
+import {
+  ProviderMetrics,
+  type ProviderOutcome,
+  type ProviderStatsReport,
+} from "./metrics.js";
 import type { SnapshotManager } from "./snapshot.js";
 
 const MAX_CACHE_ENTRIES = 500;
@@ -20,11 +25,41 @@ const MAX_CACHE_ENTRIES = 500;
 interface CacheEntry {
   expiresAt: number;
   streams: StremioStream[];
+  meta: StreamsMeta;
 }
 
 interface CollectedStreams {
   scraper: LoadedScraper;
   streams: unknown[];
+}
+
+interface CollectResult {
+  collected: CollectedStreams[];
+  stats: ProviderOutcome[];
+}
+
+interface StreamsMeta {
+  tmdbId: number;
+  providers: number;
+  responded: number;
+  streams: number;
+  zeroHits: string[];
+  failed: string[];
+  skipped: string[];
+  slowest: { provider: string; latencyMs: number } | null;
+}
+
+type Outcome =
+  | "ok"
+  | "tmdb_missing"
+  | "snapshot_unavailable"
+  | "aborted"
+  | "error";
+
+interface ProduceResult {
+  streams: StremioStream[];
+  outcome: Outcome;
+  meta: StreamsMeta | null;
 }
 
 export interface StreamPipelineOptions {
@@ -38,6 +73,19 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function slowestProvider(
+  stats: ProviderOutcome[],
+): StreamsMeta["slowest"] {
+  let slowest: StreamsMeta["slowest"] = null;
+  for (const stat of stats) {
+    if (stat.error === "deadline") continue;
+    if (!slowest || stat.latencyMs > slowest.latencyMs) {
+      slowest = { provider: stat.id, latencyMs: stat.latencyMs };
+    }
+  }
+  return slowest;
+}
+
 async function collectStreams(options: {
   scrapers: LoadedScraper[];
   concurrency: number;
@@ -45,7 +93,7 @@ async function collectStreams(options: {
   perProviderTimeoutMs: number;
   logger: LoggerLike;
   run: (scraper: LoadedScraper) => Promise<unknown[]>;
-}): Promise<CollectedStreams[]> {
+}): Promise<CollectResult> {
   const {
     scrapers,
     concurrency,
@@ -55,6 +103,8 @@ async function collectStreams(options: {
     run,
   } = options;
   const results: CollectedStreams[] = [];
+  const stats: ProviderOutcome[] = [];
+  const attempted = new Set<number>();
   const deadline = Date.now() + Math.max(1, deadlineMs);
   let cursor = 0;
   let done = false;
@@ -70,6 +120,8 @@ async function collectStreams(options: {
         done = true;
         return;
       }
+      attempted.add(index);
+      const startedAt = Date.now();
       try {
         const timeoutMs =
           perProviderTimeoutMs > 0
@@ -80,8 +132,32 @@ async function collectStreams(options: {
           timeoutMs,
           scraper.entry.id,
         );
-        if (Array.isArray(streams)) results.push({ scraper, streams });
+        const latencyMs = Date.now() - startedAt;
+        if (Array.isArray(streams)) {
+          results.push({ scraper, streams });
+          stats.push({
+            id: scraper.entry.id,
+            ok: true,
+            streams: streams.length,
+            latencyMs,
+          });
+        } else {
+          stats.push({
+            id: scraper.entry.id,
+            ok: false,
+            streams: 0,
+            latencyMs,
+            error: "non_array",
+          });
+        }
       } catch (error) {
+        stats.push({
+          id: scraper.entry.id,
+          ok: false,
+          streams: 0,
+          latencyMs: Date.now() - startedAt,
+          error: error instanceof TimeoutError ? "timeout" : "error",
+        });
         logger.debug("nuvio_scraper_failed", {
           scraper: scraper.entry.id,
           error: errorMessage(error),
@@ -95,7 +171,20 @@ async function collectStreams(options: {
     Array.from({ length: workerCount }, () => worker()),
   );
   done = true;
-  return results;
+
+  for (let index = 0; index < scrapers.length; index += 1) {
+    if (attempted.has(index)) continue;
+    const scraper = scrapers[index] as LoadedScraper;
+    stats.push({
+      id: scraper.entry.id,
+      ok: false,
+      streams: 0,
+      latencyMs: 0,
+      error: "deadline",
+    });
+  }
+
+  return { collected: results, stats };
 }
 
 export class StreamPipeline {
@@ -104,7 +193,8 @@ export class StreamPipeline {
   private readonly snapshots: SnapshotManager;
   private readonly cinemeta: CinemetaClient;
   private readonly cache = new Map<string, CacheEntry>();
-  private readonly inflight = new Map<string, Promise<StremioStream[]>>();
+  private readonly inflight = new Map<string, Promise<ProduceResult>>();
+  private readonly metrics = new ProviderMetrics();
 
   constructor(options: StreamPipelineOptions) {
     this.config = options.config;
@@ -113,24 +203,66 @@ export class StreamPipeline {
     this.cinemeta = options.cinemeta;
   }
 
+  getProviderStats(): ProviderStatsReport {
+    return this.metrics.report();
+  }
+
   async handle(
     request: StreamRequest,
     signal?: AbortSignal,
   ): Promise<StremioStream[]> {
-    if (signal?.aborted) return [];
+    const startedAt = Date.now();
+    if (signal?.aborted) {
+      this.logSummary(request, startedAt, "miss", false, {
+        streams: [],
+        outcome: "aborted",
+        meta: null,
+      });
+      return [];
+    }
 
     const cacheKey = `${request.type}:${request.imdbId}:${request.season ?? ""}:${request.episode ?? ""}`;
     const cached = this.cache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) return cached.streams;
+    if (cached && cached.expiresAt > Date.now()) {
+      this.logSummary(request, startedAt, "hit", false, {
+        streams: cached.streams,
+        outcome: "ok",
+        meta: cached.meta,
+      });
+      return cached.streams;
+    }
 
     const existing = this.inflight.get(cacheKey);
-    if (existing) return existing;
+    if (existing) {
+      try {
+        const result = await existing;
+        this.logSummary(request, startedAt, "miss", true, result);
+        return result.streams;
+      } catch (error) {
+        this.logRequestFailure(request, error);
+        this.logSummary(request, startedAt, "miss", true, {
+          streams: [],
+          outcome: "error",
+          meta: null,
+        });
+        return [];
+      }
+    }
 
-    const startedAt = Date.now();
-    const task = this.produce(request, signal, cacheKey, startedAt);
+    const task = this.produce(request, signal, cacheKey);
     this.inflight.set(cacheKey, task);
     try {
-      return await task;
+      const result = await task;
+      this.logSummary(request, startedAt, "miss", false, result);
+      return result.streams;
+    } catch (error) {
+      this.logRequestFailure(request, error);
+      this.logSummary(request, startedAt, "miss", false, {
+        streams: [],
+        outcome: "error",
+        meta: null,
+      });
+      return [];
     } finally {
       this.inflight.delete(cacheKey);
     }
@@ -140,8 +272,7 @@ export class StreamPipeline {
     request: StreamRequest,
     signal: AbortSignal | undefined,
     cacheKey: string,
-    startedAt: number,
-  ): Promise<StremioStream[]> {
+  ): Promise<ProduceResult> {
     try {
       const tmdbId = await this.cinemeta.resolveTmdbId(request.type, request.imdbId);
       if (tmdbId === null) {
@@ -149,7 +280,7 @@ export class StreamPipeline {
           type: request.type,
           imdbId: request.imdbId,
         });
-        return [];
+        return { streams: [], outcome: "tmdb_missing", meta: null };
       }
 
       const snapshot = await this.snapshots.ensure();
@@ -158,16 +289,18 @@ export class StreamPipeline {
           type: request.type,
           imdbId: request.imdbId,
         });
-        return [];
+        return { streams: [], outcome: "snapshot_unavailable", meta: null };
       }
-      if (signal?.aborted) return [];
+      if (signal?.aborted) {
+        return { streams: [], outcome: "aborted", meta: null };
+      }
 
       const scrapers = snapshot.scrapers.filter((scraper) =>
         scraperSupports(scraper, request.type),
       );
       const mediaType = request.type === "movie" ? "movie" : "tv";
 
-      const collected = await collectStreams({
+      const { collected, stats } = await collectStreams({
         scrapers,
         concurrency: this.config.scraperConcurrency,
         deadlineMs: this.config.globalDeadlineMs,
@@ -181,6 +314,7 @@ export class StreamPipeline {
             request.episode,
           ),
       });
+      for (const stat of stats) this.metrics.record(stat);
 
       const streams = sortStreams(
         collected.flatMap((result) =>
@@ -192,32 +326,82 @@ export class StreamPipeline {
         ),
       ).slice(0, MAX_STREAMS);
 
-      if (this.config.streamCacheTtlMs > 0 && !signal?.aborted) {
-        this.store(cacheKey, streams);
-      }
-
-      this.logger.info("nuvio_streams_resolved", {
-        type: request.type,
-        imdbId: request.imdbId,
+      const zeroHits = stats
+        .filter((stat) => stat.streams === 0)
+        .map((stat) => stat.id);
+      const failed = stats
+        .filter((stat) => !stat.ok && stat.error !== "deadline")
+        .map((stat) => stat.id);
+      const skipped = stats
+        .filter((stat) => stat.error === "deadline")
+        .map((stat) => stat.id);
+      const meta: StreamsMeta = {
         tmdbId,
-        scrapers: scrapers.length,
+        providers: scrapers.length,
         responded: collected.length,
         streams: streams.length,
-        durationMs: Date.now() - startedAt,
-      });
+        zeroHits,
+        failed,
+        skipped,
+        slowest: slowestProvider(stats),
+      };
 
-      return streams;
+      if (this.config.streamCacheTtlMs > 0 && !signal?.aborted) {
+        this.store(cacheKey, streams, meta);
+      }
+
+      return { streams, outcome: "ok", meta };
     } catch (error) {
       this.logger.error("nuvio_stream_request_failed", {
         type: request.type,
         imdbId: request.imdbId,
         error: errorMessage(error),
       });
-      return [];
+      return { streams: [], outcome: "error", meta: null };
     }
   }
 
-  private store(key: string, streams: StremioStream[]): void {
+  private logSummary(
+    request: StreamRequest,
+    startedAt: number,
+    cache: "hit" | "miss",
+    shared: boolean,
+    result: ProduceResult,
+  ): void {
+    const meta = result.meta;
+    this.logger.info("nuvio_streams_resolved", {
+      type: request.type,
+      imdbId: request.imdbId,
+      season: request.season,
+      episode: request.episode,
+      tmdbId: meta?.tmdbId ?? null,
+      outcome: result.outcome,
+      cache,
+      shared,
+      providers: meta?.providers ?? 0,
+      responded: meta?.responded ?? 0,
+      streams: result.streams.length,
+      zeroHits: meta?.zeroHits ?? [],
+      failed: meta?.failed ?? [],
+      skipped: meta?.skipped ?? [],
+      slowest: meta?.slowest ?? null,
+      durationMs: Date.now() - startedAt,
+    });
+  }
+
+  private logRequestFailure(request: StreamRequest, error: unknown): void {
+    this.logger.error("nuvio_stream_request_failed", {
+      type: request.type,
+      imdbId: request.imdbId,
+      error: errorMessage(error),
+    });
+  }
+
+  private store(
+    key: string,
+    streams: StremioStream[],
+    meta: StreamsMeta,
+  ): void {
     if (this.cache.size >= MAX_CACHE_ENTRIES) {
       const oldest = this.cache.keys().next().value;
       if (oldest !== undefined) this.cache.delete(oldest);
@@ -225,6 +409,7 @@ export class StreamPipeline {
     this.cache.set(key, {
       expiresAt: Date.now() + this.config.streamCacheTtlMs,
       streams,
+      meta,
     });
   }
 }

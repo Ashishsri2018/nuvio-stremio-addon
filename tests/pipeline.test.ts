@@ -3,7 +3,7 @@ import type { CinemetaClient } from "../src/cinemeta/client.js";
 import type { SnapshotManager } from "../src/nuvio/snapshot.js";
 import { StreamPipeline } from "../src/nuvio/pipeline.js";
 import type { LoadedScraper, NuvioSnapshot } from "../src/types.js";
-import { makeEntry, silentLogger, testConfig } from "./helpers.js";
+import { makeEntry, recordingLogger, silentLogger, testConfig } from "./helpers.js";
 
 function makeScraper(
   id: string,
@@ -326,5 +326,273 @@ describe("StreamPipeline", () => {
 
     const streams = await pipeline.handle({ type: "movie", imdbId: "tt0133093" });
     expect(streams[0]?.behaviorHints).toEqual({ bingeGroup: "alpha-1080p" });
+  });
+
+  it("logs one provider summary per request and records metrics", async () => {
+    const good = makeScraper("good", ["movie"], async () => [
+      { url: "https://cdn.test/good.mp4", quality: "1080p" },
+    ]);
+    const empty = makeScraper("empty", ["movie"], async () => []);
+    const bad = makeScraper("bad", ["movie"], async () => {
+      throw new Error("upstream exploded");
+    });
+
+    const config = await testConfig();
+    const { manager } = fakeSnapshots(snapshotWith([good, empty, bad]));
+    const { client } = fakeCinemeta(() => 603);
+    const { logger, events } = recordingLogger();
+    const pipeline = new StreamPipeline({
+      config,
+      logger,
+      snapshots: manager,
+      cinemeta: client,
+    });
+
+    await pipeline.handle({ type: "movie", imdbId: "tt0133093" });
+
+    const summaries = events.filter(
+      (entry) => entry.event === "nuvio_streams_resolved",
+    );
+    expect(summaries).toHaveLength(1);
+    const summary = summaries[0];
+    expect(summary).toMatchObject({
+      type: "movie",
+      imdbId: "tt0133093",
+      tmdbId: 603,
+      outcome: "ok",
+      cache: "miss",
+      shared: false,
+      providers: 3,
+      responded: 2,
+      streams: 1,
+      failed: ["bad"],
+      skipped: [],
+    });
+    expect([...(summary?.zeroHits as string[])].sort()).toEqual([
+      "bad",
+      "empty",
+    ]);
+    expect(summary?.slowest).toMatchObject({
+      provider: expect.any(String),
+      latencyMs: expect.any(Number),
+    });
+    expect(summary?.durationMs).toEqual(expect.any(Number));
+
+    const stats = pipeline.getProviderStats();
+    expect(stats.good).toMatchObject({
+      calls: 1,
+      ok: 1,
+      responded: 1,
+      empty: 0,
+    });
+    expect(stats.empty).toMatchObject({
+      calls: 1,
+      ok: 1,
+      responded: 0,
+      empty: 1,
+    });
+    expect(stats.bad).toMatchObject({
+      calls: 1,
+      ok: 0,
+      errors: 1,
+      successRate: 0,
+    });
+  });
+
+  it("logs cache hits with the stored provider summary", async () => {
+    let calls = 0;
+    const scraper = makeScraper("alpha", ["movie"], async () => {
+      calls += 1;
+      return [{ url: "https://cdn.test/a.mp4", quality: "1080p" }];
+    });
+
+    const config = await testConfig({ STREAM_CACHE_TTL_MS: "60000" });
+    const { manager } = fakeSnapshots(snapshotWith([scraper]));
+    const { client } = fakeCinemeta(() => 603);
+    const { logger, events } = recordingLogger();
+    const pipeline = new StreamPipeline({
+      config,
+      logger,
+      snapshots: manager,
+      cinemeta: client,
+    });
+
+    const request = { type: "movie" as const, imdbId: "tt0133093" };
+    await pipeline.handle(request);
+    await pipeline.handle(request);
+
+    expect(calls).toBe(1);
+    const summaries = events.filter(
+      (entry) => entry.event === "nuvio_streams_resolved",
+    );
+    expect(summaries).toHaveLength(2);
+    expect(summaries[0]).toMatchObject({
+      cache: "miss",
+      shared: false,
+      tmdbId: 603,
+      providers: 1,
+      streams: 1,
+    });
+    expect(summaries[1]).toMatchObject({
+      cache: "hit",
+      shared: false,
+      tmdbId: 603,
+      providers: 1,
+      streams: 1,
+    });
+    expect(summaries[1]?.zeroHits).toEqual(summaries[0]?.zeroHits);
+  });
+
+  it("logs inflight joins as shared misses", async () => {
+    let calls = 0;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const scraper = makeScraper("alpha", ["movie"], async () => {
+      calls += 1;
+      await gate;
+      return [{ url: "https://cdn.test/a.mp4", quality: "1080p" }];
+    });
+
+    const config = await testConfig();
+    const { manager } = fakeSnapshots(snapshotWith([scraper]));
+    const { client } = fakeCinemeta(() => 603);
+    const { logger, events } = recordingLogger();
+    const pipeline = new StreamPipeline({
+      config,
+      logger,
+      snapshots: manager,
+      cinemeta: client,
+    });
+
+    const request = { type: "movie" as const, imdbId: "tt0133093" };
+    const first = pipeline.handle(request);
+    const second = pipeline.handle(request);
+    release();
+    await Promise.all([first, second]);
+
+    expect(calls).toBe(1);
+    const summaries = events.filter(
+      (entry) => entry.event === "nuvio_streams_resolved",
+    );
+    expect(summaries).toHaveLength(2);
+    expect(summaries.filter((entry) => entry.shared === true)).toHaveLength(1);
+    expect(summaries.every((entry) => entry.cache === "miss")).toBe(true);
+  });
+
+  it("logs outcomes for unresolved ids and missing snapshots", async () => {
+    const config = await testConfig();
+    const request = { type: "movie" as const, imdbId: "tt0133093" };
+
+    const missing = recordingLogger();
+    const missingPipeline = new StreamPipeline({
+      config,
+      logger: missing.logger,
+      snapshots: fakeSnapshots(snapshotWith([])).manager,
+      cinemeta: fakeCinemeta(() => null).client,
+    });
+    await missingPipeline.handle(request);
+    expect(
+      missing.events.find((entry) => entry.event === "nuvio_streams_resolved"),
+    ).toMatchObject({
+      outcome: "tmdb_missing",
+      tmdbId: null,
+      providers: 0,
+      cache: "miss",
+    });
+
+    const unavailable = recordingLogger();
+    const unavailablePipeline = new StreamPipeline({
+      config,
+      logger: unavailable.logger,
+      snapshots: fakeSnapshots(null).manager,
+      cinemeta: fakeCinemeta(() => 603).client,
+    });
+    await unavailablePipeline.handle(request);
+    expect(
+      unavailable.events.find(
+        (entry) => entry.event === "nuvio_streams_resolved",
+      ),
+    ).toMatchObject({
+      outcome: "snapshot_unavailable",
+      tmdbId: null,
+      providers: 0,
+      cache: "miss",
+    });
+  });
+
+  it("logs pre-aborted requests as aborted misses", async () => {
+    const config = await testConfig();
+    const { manager } = fakeSnapshots(snapshotWith([]));
+    const { client, calls } = fakeCinemeta(() => 603);
+    const { logger, events } = recordingLogger();
+    const pipeline = new StreamPipeline({
+      config,
+      logger,
+      snapshots: manager,
+      cinemeta: client,
+    });
+
+    const controller = new AbortController();
+    controller.abort();
+    await pipeline.handle(
+      { type: "movie", imdbId: "tt0133093" },
+      controller.signal,
+    );
+
+    expect(calls).toEqual([]);
+    expect(
+      events.find((entry) => entry.event === "nuvio_streams_resolved"),
+    ).toMatchObject({
+      outcome: "aborted",
+      cache: "miss",
+      tmdbId: null,
+      streams: 0,
+    });
+  });
+
+  it("reports providers skipped by the global deadline", async () => {
+    const hung = makeScraper(
+      "hung",
+      ["movie"],
+      () => new Promise(() => undefined),
+    );
+    const pending = makeScraper("pending", ["movie"], async () => [
+      { url: "https://cdn.test/pending.mp4", quality: "720p" },
+    ]);
+
+    const config = await testConfig({
+      GLOBAL_DEADLINE_MS: "2000",
+      SCRAPER_CONCURRENCY: "1",
+    });
+    const { manager } = fakeSnapshots(snapshotWith([hung, pending]));
+    const { client } = fakeCinemeta(() => 603);
+    const { logger, events } = recordingLogger();
+    const pipeline = new StreamPipeline({
+      config,
+      logger,
+      snapshots: manager,
+      cinemeta: client,
+    });
+
+    await pipeline.handle({ type: "movie", imdbId: "tt0133093" });
+
+    const summary = events.find(
+      (entry) => entry.event === "nuvio_streams_resolved",
+    );
+    expect(summary).toMatchObject({
+      outcome: "ok",
+      providers: 2,
+      responded: 0,
+      streams: 0,
+      failed: ["hung"],
+      skipped: ["pending"],
+    });
+    expect([...(summary?.zeroHits as string[])].sort()).toEqual([
+      "hung",
+      "pending",
+    ]);
+    expect(pipeline.getProviderStats().pending).toBeUndefined();
   });
 });

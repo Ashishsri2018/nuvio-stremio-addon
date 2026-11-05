@@ -24,15 +24,3 @@ The URL config segment currently filters only the response (`maxRes`, `minRes`, 
 - Acceptance: `/<segment>/stream/...` only includes the selected provider names; invalid/missing segments behave as today.
 
 Likely files: `src/addon/userConfig.ts`, `src/addon/configure.ts`, `src/addon/app.ts`, `tests/userConfig.test.ts`, `tests/routes.test.ts`.
-
-## 7. Request observability
-
-Add enough telemetry to tune timeouts and the disable list without guessing.
-
-- Log one structured summary per stream request: `imdbId`, `tmdbId`, provider count, responded count, zero-hit provider ids, slowest provider + latency, cache hit/miss, total duration.
-- Track cold vs warm snapshot usage (bundled/disk/network) in the existing `nuvio_snapshot_activated` event.
-- Optionally expose aggregate counters in `/health` (per-provider success rate and p50/p95 latency) using an in-memory ring buffer.
-- Never log stream URLs, headers, tokens, or cookies; reuse the logger redaction rules.
-- Acceptance: logs alone are enough to see which providers returned nothing and which were slow for a given title.
-
-Likely files: `src/nuvio/pipeline.ts`, `src/nuvio/snapshot.ts`, `src/addon/app.ts`, `src/logger.ts`.

@@ -109,7 +109,7 @@ A snapshot is the upstream `manifest.json` plus enabled provider files, evaluate
 8. **Warm starts.** A fresh `state.json` lets a new function instance load the snapshot from disk without contacting Codeberg. On Vercel this only helps within the same instance's `/tmp`.
 9. **Bundled snapshot.** When `NUVIO_BUNDLED_DIR` is set, a fresh bundled snapshot is loaded before any network call, and a bundled snapshot is used as a last resort if a refresh fails. `npm run bake` writes it; `snapshot/` is gitignored and shipped to Vercel via `includeFiles`.
 
-`GET /health` exposes the active `sha`, `fetchedAt`, `scraperCount`, `lastError`, and `refreshing`.
+`GET /health` exposes the active `sha`, `fetchedAt`, `scraperCount`, `lastError`, `refreshing`, and the per-provider `providers` block (see Observability).
 
 ## Provider runtime
 
@@ -143,6 +143,13 @@ Provider execution is in-process and unsandboxed. The trust boundary is the pinn
 - At most 20 streams per provider; URLs are deduped.
 - `sortStreams` dedupes globally by URL, sorts by inferred quality (`8k`, `4k`, `uhd`, `qhd`, `fhd`, `###p`, bare resolutions), then prefers direct files (`.mp4`, `.mkv`, etc.) over unknown formats over HLS/DASH. Otherwise input order is preserved.
 - The pipeline caps the combined result at 300 streams.
+
+## Observability
+
+- `nuvio_snapshot_activated` records `source` as `disk`, `bundled`, or `network`, plus `sha`, scraper count, and `fetchedAt`.
+- Every stream request emits exactly one `nuvio_streams_resolved` summary from `StreamPipeline.handle()` (miss, cache hit, and inflight join alike): `type`, `imdbId`, `season`/`episode`, `tmdbId`, `outcome` (`ok`, `tmdb_missing`, `snapshot_unavailable`, `aborted`, `error`), `cache` (`hit`/`miss`), `shared`, `providers`, `responded`, `streams`, `zeroHits`, `failed`, `skipped`, `slowest` (`{provider, latencyMs}`), and `durationMs`. Only ids, counts, and latencies are logged; stream URLs, headers, settings, and error messages are not added.
+- `zeroHits` lists every eligible provider that produced no raw streams, including empty responses, failures, timeouts, and deadline skips; `failed` and `skipped` identify the reason. `slowest` includes timeout attempts.
+- `src/nuvio/metrics.ts` keeps in-memory, per-function-instance counters per provider (`calls`, `ok`, `responded`, `empty`, `errors`, `timeouts`, `skipped`, `successRate`) plus a ring buffer of the last 100 latencies; `/health.providers` reports nearest-rank p50/p95 for providers with at least one call. Counters reset on cold start, like the stream cache.
 
 ## HTTP layer
 
@@ -196,8 +203,9 @@ Vitest runs `tests/**/*.test.ts` in Node with a 30 s timeout. All HTTP is local 
 | `snapshot.test.ts` | download/evaluate/persist/disk reload, bundled load, stale fallback, branch fallback, disabled scrapers |
 | `mapStreams.test.ts` | direct mapping, proxy gating, header filtering, subtitles, dedupe/sort, limits |
 | `userConfig.test.ts` | segment encode/parse, invalid/versioned defaults, resolution/size/subtitle filtering |
-| `pipeline.test.ts` | TMDB resolution, series args, partial results, deadlines, per-provider timeout, caching, single-flight, abort, empty snapshot |
-| `routes.test.ts` | manifest, configure page, config-prefixed routes, URL filters, movie/series routes, invalid ids, thrown pipeline, HEAD, health, CORS, 404 |
+| `pipeline.test.ts` | TMDB resolution, series args, partial results, deadlines, per-provider timeout, caching, single-flight, abort, empty snapshot, request summaries, deadline skips, provider stats |
+| `metrics.test.ts` | counters, deadline skips, ring-buffer eviction, nearest-rank percentiles, success rates |
+| `routes.test.ts` | manifest, configure page, config-prefixed routes, URL filters, movie/series routes, invalid ids, thrown pipeline, HEAD, health (including provider stats), CORS, 404 |
 
 ## Security notes
 

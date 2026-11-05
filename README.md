@@ -25,7 +25,7 @@ To filter streams per install, open `https://nuvio-stremio-addon-nine.vercel.app
 | `GET /:config/stream/:type/:id.json` | Same stream route, filtered by the URL segment. |
 | `GET /configure` | HTML page that builds a filtered install URL. |
 | `GET /:config/configure` | Same page, prefilled from the segment (Stremio's gear icon). |
-| `GET /health` | Snapshot status: `status`, `sha`, `fetchedAt`, `scraperCount`, `lastError`, `refreshing`. |
+| `GET /health` | Snapshot status (`status`, `sha`, `fetchedAt`, `scraperCount`, `lastError`, `refreshing`) plus in-memory per-provider stats (`providers`: calls, responded/empty, errors/timeouts/skips, success rate, p50/p95 latency). Counters reset on cold start. |
 | `GET /api/cron/refresh` | Forces a snapshot refresh; requires `Authorization: Bearer $CRON_SECRET`. |
 
 Invalid ids, unresolvable TMDB ids, missing snapshots, and provider failures all return `{"streams":[]}` with HTTP 200.
@@ -132,7 +132,7 @@ vercel logs https://nuvio-stremio-addon-nine.vercel.app
 vercel ls
 ```
 
-A cold function instance re-downloads the 51-provider snapshot, so the first stream request takes roughly 25-30 seconds. Warm requests finish at the global deadline or sooner. `/health` reports the active snapshot SHA and scraper count.
+A cold function instance re-downloads the 51-provider snapshot, so the first stream request takes roughly 25-30 seconds. Warm requests finish at the global deadline or sooner. `/health` reports the active snapshot SHA, scraper count, and per-provider counters. Each stream request logs one `nuvio_streams_resolved` line with cache status, zero-hit/failed/skipped provider ids, the slowest provider, and total duration.
 
 ## Limits and failure behavior
 

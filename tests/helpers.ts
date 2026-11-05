@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadConfig } from "../src/config.js";
 import { Logger } from "../src/logger.js";
-import type { AppConfig, NuvioScraperEntry } from "../src/types.js";
+import type { AppConfig, LogLevel, NuvioScraperEntry } from "../src/types.js";
 
 export interface FixtureServer {
   url: string;
@@ -59,6 +59,24 @@ export async function tempDir(prefix: string): Promise<string> {
 
 export function silentLogger(): Logger {
   return new Logger({ level: "error", write: () => undefined });
+}
+
+export interface RecordedLog {
+  ts: string;
+  level: LogLevel;
+  event: string;
+  [field: string]: unknown;
+}
+
+export function recordingLogger(): { logger: Logger; events: RecordedLog[] } {
+  const events: RecordedLog[] = [];
+  const logger = new Logger({
+    level: "debug",
+    write: (line) => {
+      events.push(JSON.parse(line) as RecordedLog);
+    },
+  });
+  return { logger, events };
 }
 
 export async function testConfig(

@@ -5,6 +5,7 @@ import { SnapshotManager } from "../src/nuvio/snapshot.js";
 import { CodebergClient } from "../src/source/codeberg.js";
 import {
   json,
+  recordingLogger,
   silentLogger,
   startServer,
   tempDir,
@@ -96,14 +97,18 @@ describe("SnapshotManager", () => {
     });
 
     const config = await testConfig();
+    const logs = recordingLogger();
     const manager = new SnapshotManager(
       config,
-      silentLogger(),
+      logs.logger,
       createClient(server.url),
     );
 
     const snapshot = await manager.ensure();
     expect(snapshot?.sha).toBe(SHA);
+    expect(
+      logs.events.find((entry) => entry.event === "nuvio_snapshot_activated"),
+    ).toMatchObject({ source: "network", sha: SHA, scrapers: 2 });
     expect(snapshot?.scrapers.map((scraper) => scraper.entry.id).sort()).toEqual([
       "alpha",
       "beta",
@@ -129,15 +134,21 @@ describe("SnapshotManager", () => {
     });
 
     const beforeReload = server.requests.length;
+    const warmLogs = recordingLogger();
     const warmManager = new SnapshotManager(
       config,
-      silentLogger(),
+      warmLogs.logger,
       createClient(server.url),
     );
     const warm = await warmManager.ensure();
     expect(warm?.sha).toBe(SHA);
     expect(warm?.scrapers).toHaveLength(2);
     expect(server.requests.length).toBe(beforeReload);
+    expect(
+      warmLogs.events.find(
+        (entry) => entry.event === "nuvio_snapshot_activated",
+      ),
+    ).toMatchObject({ source: "disk", sha: SHA });
 
     const beforeForce = server.requests.length;
     const refreshed = await manager.refresh(true);
@@ -238,9 +249,10 @@ describe("SnapshotManager", () => {
     );
 
     const config = await testConfig({ NUVIO_BUNDLED_DIR: dir });
+    const logs = recordingLogger();
     const manager = new SnapshotManager(
       config,
-      silentLogger(),
+      logs.logger,
       createClient("http://127.0.0.1:1"),
     );
 
@@ -250,6 +262,9 @@ describe("SnapshotManager", () => {
       "alpha",
       "beta",
     ]);
+    expect(
+      logs.events.find((entry) => entry.event === "nuvio_snapshot_activated"),
+    ).toMatchObject({ source: "bundled", sha: SHA });
   });
 
   it("honours the disabled scraper list", async () => {

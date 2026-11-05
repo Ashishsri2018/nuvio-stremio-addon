@@ -49,6 +49,7 @@ npm start          # node dist/src/local.js after build
 - Some providers accept `supportedTypes: ["series"]`; `scraperSupports` treats `tv` and `series` as equivalent for Stremio series.
 - `SCRAPER_TIMEOUT_MS` is a hint; the pipeline's effective per-provider timeout is the remaining `GLOBAL_DEADLINE_MS`.
 - The stream cache is in-memory per function instance (`STREAM_CACHE_TTL_MS`, max 500 entries) and is skipped for aborted requests.
+- `nuvio_streams_resolved` is emitted once per stream request by `StreamPipeline.handle()`; any new return path must log exactly one summary (ids/counts/latencies only, never URLs or headers). `/health.providers` counters are also per instance and reset on cold start.
 - Vercel injects `x-vercel-id`/`x-invocation-id` into outbound fetches; providers may surface them in returned headers, which appear in `proxyHeaders`. This is expected.
 - Vercel's writable path is `/tmp` only; `NUVIO_CACHE_DIR` defaults there. Cold instances re-download the snapshot.
 
