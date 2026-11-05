@@ -24,11 +24,11 @@ Working notes for continuity. Update this file after deployment, configuration, 
 - Vercel Git integration is connected: pushes to `main` create production deployments automatically.
 - The daily cron `GET /api/cron/refresh` (`0 3 * * *`, maxDuration 60) is registered.
 - `/configure` builds per-install filter URLs (max/min resolution, unknown-quality toggle, max size, subtitle languages). Filters are base64url JSON path segments; nothing is stored server-side and invalid segments fall back to defaults.
-- 2026-11-05: TODO #7 observability implemented and verified locally (84 tests; one `nuvio_streams_resolved` summary per request, snapshot `source` on activation, `/health.providers` counters with p50/p95). CI/deploy verification pending.
+- 2026-11-05: TODO #7 observability implemented and verified in production (commit `1420c94`; CI success, Vercel Ready). Cold stream request took 19.3 s and returned 30 streams; `/health` reported 48 scrapers (bdix disabled) and populated `providers` stats.
 
 ## Production environment
 
-Twelve non-secret variables from `deploy/vercel.env` were applied to Production with `scripts/apply-vercel-env.sh`:
+Twelve non-secret variables are configured in Production: the original eleven via `scripts/apply-vercel-env.sh`, plus `DISABLED_SCRAPERS` set directly on 2026-11-05.
 
 `LOG_LEVEL=info`, `NUVIO_SOURCE=eclipsia/nuvio-plugin`, `NUVIO_BRANCH=main`, `NUVIO_UPDATE_INTERVAL_HOURS=24`, `NUVIO_CONCURRENCY=16`, `SCRAPER_CONCURRENCY=60`, `SCRAPER_TIMEOUT_MS=12000`, `GLOBAL_DEADLINE_MS=30000`, `HTTP_TIMEOUT_MS=15000`, `STREAM_CACHE_TTL_MS=60000`, `PROXY_ENABLED=true`, `DISABLED_SCRAPERS=bdix-cf,bdix-df,bdix-fh`.
 
