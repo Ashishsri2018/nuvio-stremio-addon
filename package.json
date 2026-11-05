@@ -11,6 +11,7 @@
     "dev": "tsx watch src/local.ts",
     "start": "node dist/src/local.js",
     "build": "tsc -p tsconfig.json",
+    "bake": "node scripts/bake-snapshot.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"

@@ -12,6 +12,7 @@ To filter streams per install, open `https://nuvio-stremio-addon-nine.vercel.app
 - `/stream/movie/tt...json` and `/stream/series/tt...:S:E.json` resolve the TMDB id, fan out to enabled providers, and always return HTTP 200 (empty `streams` on any failure).
 - Stream URLs are the provider's direct URLs. When `PROXY_ENABLED=true`, provider headers are attached as `behaviorHints.proxyHeaders.request`; the addon never proxies or rewrites media URLs.
 - A provider snapshot is downloaded from Codeberg at most once per `NUVIO_UPDATE_INTERVAL_HOURS` (default 24), cached under `NUVIO_CACHE_DIR` (default `/tmp/nuvio-addon` on Vercel), and swapped atomically. A stale snapshot is served if upstream is unavailable.
+- Production ships a baked snapshot (`snapshot/`, built by `npm run bake`) so cold instances load providers from disk instead of waiting on Codeberg.
 - A daily Vercel cron (`0 3 * * *`) force-refreshes the instance it reaches. Request-time TTL is the actual freshness guarantee; the cron is best-effort prewarming.
 
 ## Endpoints
@@ -52,15 +53,16 @@ Non-secret defaults live in `deploy/vercel.env` and are applied with `scripts/ap
 | --- | --- | --- |
 | `NUVIO_SOURCE` | `eclipsia/nuvio-plugin` | `owner/repo` |
 | `NUVIO_BRANCH` | `main` | |
-| `NUVIO_SHA` | empty | optional commit pin |
+| `NUVIO_SHA` | empty | optional commit pin (SHA-1 or SHA-256) |
 | `NUVIO_UPDATE_INTERVAL_HOURS` | `24` | 1-168 |
 | `NUVIO_CACHE_DIR` | `$TMPDIR/nuvio-addon` | writable directory |
-| `NUVIO_CONCURRENCY` | `8` | provider file downloads |
+| `NUVIO_BUNDLED_DIR` | empty | read-only baked snapshot dir (production: `snapshot`) |
+| `NUVIO_CONCURRENCY` | `8` | provider file downloads (production uses `16`) |
 | `SCRAPER_CONCURRENCY` | `12` | provider fan-out, 1-60 (production uses `60`) |
-| `SCRAPER_TIMEOUT_MS` | `12000` | per provider deadline hint |
+| `SCRAPER_TIMEOUT_MS` | `12000` | per-provider timeout, capped by `GLOBAL_DEADLINE_MS` |
 | `GLOBAL_DEADLINE_MS` | `20000` | partial results at deadline (production uses `30000`) |
 | `HTTP_TIMEOUT_MS` | `15000` | internal and provider fetch timeout |
-| `STREAM_CACHE_TTL_MS` | `60000` | in-memory; 0 disables |
+| `STREAM_CACHE_TTL_MS` | `60000` | in-memory; 0 disables (production uses `300000`) |
 | `TMDB_API_KEY` | empty | optional; providers embed a fallback key |
 | `SCRAPER_SETTINGS_JSON` | empty | secret: `{"scraperId":{"key":value}}` |
 | `DISABLED_SCRAPERS` | empty | comma-separated scraper ids |
@@ -96,11 +98,11 @@ curl 'localhost:7000/stream/series/tt0944947:1:1.json'
 curl localhost:7000/health
 ```
 
-`npm run dev` runs `src/local.ts` with `tsx watch`. `npm run build` emits `dist/`; `npm start` runs the built local server.
+`npm run dev` runs `src/local.ts` with `tsx watch`. `npm run build` emits `dist/`; `npm start` runs the built local server. `npm run bake` writes a read-only snapshot to `snapshot/` (gitignored); set `NUVIO_BUNDLED_DIR=snapshot` to serve it without Codeberg.
 
 ## Tests and CI
 
-- `npm test` runs Vitest with 64 tests across 8 files. Tests use local fixture HTTP servers only, so they need no network.
+- `npm test` runs Vitest with 70 tests across 8 files. Tests use local fixture HTTP servers only, so they need no network.
 - `npm run typecheck` covers `src/` and `api/`; `tests/` are checked by Vitest only.
 - GitHub Actions (`.github/workflows/ci.yml`) runs `npm ci`, `npm run typecheck`, `npm test`, and `npm run build` on every push to `main` and every PR. **CI is the source of truth** for compile and test failures.
 
@@ -116,7 +118,7 @@ openssl rand -hex 32 | vercel env add CRON_SECRET production
 vercel --prod --yes
 ```
 
-`vercel.json` sets `outputDirectory` to `public/` (kept via a placeholder file) so the static stage and the `api/` functions build together. `api/index.ts` exports the Express app; `api/cron/refresh.ts` handles the cron. Both run with `maxDuration: 60`.
+`vercel.json` sets `buildCommand` to `npm run bake && npm run build`, pins functions to the `fra1` region, and sets `outputDirectory` to `public/` (kept via a placeholder file) so the static stage and the `api/` functions build together. The baked `snapshot/` is bundled into both functions via `includeFiles`. `api/index.ts` exports the Express app; `api/cron/refresh.ts` handles the cron. Both run with `maxDuration: 60`.
 
 Vercel Git integration deploys pushes to `main` after CI. Deployment-specific `*.vercel.app` URLs are protected by Vercel Authentication; use the production alias. If Git integration is unavailable, run `vercel --prod --yes`.
 

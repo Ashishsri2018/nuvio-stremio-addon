@@ -166,6 +166,37 @@ describe("StreamPipeline", () => {
     expect(Date.now() - startedAt).toBeLessThan(10_000);
   });
 
+  it("times out slow providers without waiting for the global deadline", async () => {
+    const fast = makeScraper("fast", ["movie"], async () => [
+      { url: "https://cdn.test/fast.mp4", quality: "1080p" },
+    ]);
+    const slow = makeScraper(
+      "slow",
+      ["movie"],
+      () => new Promise(() => undefined),
+    );
+
+    const config = await testConfig({
+      GLOBAL_DEADLINE_MS: "10000",
+      SCRAPER_TIMEOUT_MS: "1000",
+    });
+    const { manager } = fakeSnapshots(snapshotWith([slow, fast]));
+    const { client } = fakeCinemeta(() => 603);
+    const pipeline = new StreamPipeline({
+      config,
+      logger: silentLogger(),
+      snapshots: manager,
+      cinemeta: client,
+    });
+
+    const startedAt = Date.now();
+    const streams = await pipeline.handle({ type: "movie", imdbId: "tt0133093" });
+    expect(streams.map((stream) => stream.url)).toEqual([
+      "https://cdn.test/fast.mp4",
+    ]);
+    expect(Date.now() - startedAt).toBeLessThan(3_000);
+  });
+
   it("returns nothing when the TMDB id cannot be resolved", async () => {
     const config = await testConfig();
     const { manager, calls } = fakeSnapshots(snapshotWith([]));
@@ -221,6 +252,38 @@ describe("StreamPipeline", () => {
     const second = await pipeline.handle(request);
     expect(second).toBe(first);
     expect(calls).toBe(1);
+  });
+
+  it("dedupes concurrent identical requests", async () => {
+    let calls = 0;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const scraper = makeScraper("alpha", ["movie"], async () => {
+      calls += 1;
+      await gate;
+      return [{ url: "https://cdn.test/a.mp4", quality: "1080p" }];
+    });
+
+    const config = await testConfig();
+    const { manager } = fakeSnapshots(snapshotWith([scraper]));
+    const { client } = fakeCinemeta(() => 603);
+    const pipeline = new StreamPipeline({
+      config,
+      logger: silentLogger(),
+      snapshots: manager,
+      cinemeta: client,
+    });
+
+    const request = { type: "movie" as const, imdbId: "tt0133093" };
+    const first = pipeline.handle(request);
+    const second = pipeline.handle(request);
+    release();
+    const [a, b] = await Promise.all([first, second]);
+
+    expect(calls).toBe(1);
+    expect(b).toBe(a);
   });
 
   it("returns nothing immediately when the request is already aborted", async () => {

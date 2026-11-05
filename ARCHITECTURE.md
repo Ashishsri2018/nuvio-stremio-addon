@@ -53,21 +53,24 @@ parseStreamId(type, id) -- invalid --> 200 {"streams":[]}
 StreamPipeline.handle(request, signal)
         |
         +--> in-memory cache hit (key type:imdbId:season:episode) --> return
+        +--> identical in-flight request --> join its promise
         |
         +--> CinemetaClient.resolveTmdbId(type, imdbId)
         |      Cinemeta /meta/{movie|series}/{imdbId}.json -> meta.moviedb_id
         |      fallback: TMDB /find/{imdbId}?external_source=imdb_id (if TMDB_API_KEY)
         |
         +--> SnapshotManager.ensure()
-        |      fresh in memory -> use; fresh on disk -> load; else refresh
+        |      fresh in memory -> use; fresh on disk -> load;
+        |      fresh bundled -> load; else refresh
         |
         +--> filter scanners by supportedTypes
         |      movie  -> includes "movie"
         |      series -> includes "tv" or "series"
         |
-        +--> collectStreams(concurrency, global deadline)
+        +--> collectStreams(concurrency, global deadline, provider timeout)
         |      workers call scraper.getStreams(tmdbId, "movie"|"tv", season, episode)
-        |      per-call timeout = remaining deadline; failures logged and skipped
+        |      per-call timeout = min(SCRAPER_TIMEOUT_MS, remaining deadline);
+        |      failures logged and skipped
         |
         +--> mapScraperStreams per provider -> sortStreams -> cap 300
         |
@@ -82,7 +85,7 @@ filterStreams(streams, parseUserConfig(req.params.config))
 200 {"streams":[...]} (always)
 ```
 
-The pipeline cache stores unfiltered streams keyed by `type:imdbId:season:episode`, so every config segment shares the same upstream work; filtering is applied per request.
+The pipeline cache stores unfiltered streams keyed by `type:imdbId:season:episode`, so every config segment shares the same upstream work; filtering is applied per request. Identical requests that arrive while one is still running join that promise instead of starting a second fan-out. Production uses a 5-minute cache TTL; aborted requests bypass the cache.
 
 `StreamRequest.type` is Stremio's `"movie"`/`"series"`; the provider-facing media type is `"movie"`/`"tv"`. Series-only ids without a season (`tt...:S`) are accepted and forward `episode === undefined`.
 
@@ -103,7 +106,8 @@ A snapshot is the upstream `manifest.json` plus enabled provider files, evaluate
 5. **Persistence.** Files are written into a staging directory, then atomically renamed to `{NUVIO_CACHE_DIR}/{sha}/`. `state.json` is written atomically with `{sha, fetchedAt}`. Older snapshot dirs and stale temp dirs are removed.
 6. **Activation.** The in-memory snapshot reference is swapped only after a complete successful build. The old snapshot stays active on any failure and `lastError` is recorded.
 7. **Freshness.** `ensure()` treats a snapshot as fresh for `NUVIO_UPDATE_INTERVAL_HOURS` (default 24). `refresh(force)` bypasses freshness; the cron handler uses it. Concurrent callers share a single in-flight refresh promise.
-8. **Warm starts.** A fresh `state.json` lets a new function instance load the snapshot from disk without contacting Codeberg. On Vercel this only helps within the same instance's `/tmp`; cold instances re-download.
+8. **Warm starts.** A fresh `state.json` lets a new function instance load the snapshot from disk without contacting Codeberg. On Vercel this only helps within the same instance's `/tmp`.
+9. **Bundled snapshot.** When `NUVIO_BUNDLED_DIR` is set, a fresh bundled snapshot is loaded before any network call, and a bundled snapshot is used as a last resort if a refresh fails. `npm run bake` writes it; `snapshot/` is gitignored and shipped to Vercel via `includeFiles`.
 
 `GET /health` exposes the active `sha`, `fetchedAt`, `scraperCount`, `lastError`, and `refreshing`.
 
@@ -152,7 +156,7 @@ Provider execution is in-process and unsandboxed. The trust boundary is the pinn
 ## Vercel deployment shape
 
 - `api/index.ts` calls `getRuntime()` and default-exports the Express app. `api/cron/refresh.ts` verifies `Authorization: Bearer $CRON_SECRET`, calls `snapshots.refresh(true)`, and returns the health report.
-- `vercel.json` rewrites `/manifest.json`, `/configure`, `/stream/:path*`, `/health`, `/:config/manifest.json`, `/:config/configure`, and `/:config/stream/:path*` to `/api/index`; sets `maxDuration: 60` for both functions; schedules `/api/cron/refresh` at `0 3 * * *`; sets `outputDirectory: public`. `/api/cron/refresh` remains a filesystem route and is not matched by these patterns.
+- `vercel.json` rewrites `/manifest.json`, `/configure`, `/stream/:path*`, `/health`, `/:config/manifest.json`, `/:config/configure`, and `/:config/stream/:path*` to `/api/index`; sets `buildCommand` to `npm run bake && npm run build`, pins `regions` to `fra1`, sets `maxDuration: 60` and `includeFiles: snapshot/**` for both functions, schedules `/api/cron/refresh` at `0 3 * * *`, and sets `outputDirectory: public`. `/api/cron/refresh` remains a filesystem route and is not matched by these patterns.
 - The project must use the **Other** framework preset. The Node preset looks for a root/`src` `app|index|server|main` entrypoint that imports Express and otherwise fails with `No entrypoint found which imports express`; our Express app lives in `src/addon/app.ts`, so the preset is cleared with `vercel project update nuvio-stremio-addon --framework other --yes`.
 - `public/` exists only to satisfy the static stage that the Other preset builds alongside `api/` functions.
 - The only writable path is `/tmp`, so `NUVIO_CACHE_DIR` defaults to `/tmp/nuvio-addon`. The cron prewarms whichever instance receives it; it cannot warm all instances.
@@ -172,6 +176,7 @@ All keys are parsed in `src/config.ts`; invalid values abort startup with `Confi
 | Invalid/unknown stream id | 200 `{"streams":[]}` |
 | TMDB id not found | 200 `{"streams":[]}`, `nuvio_tmdb_id_missing` log |
 | Codeberg unreachable, snapshot active | serves active snapshot (possibly stale) |
+| Codeberg unreachable, bundled snapshot present | serves bundled snapshot, `nuvio_snapshot_refresh_failed_using_bundled` log |
 | Codeberg unreachable, no snapshot | 200 `{"streams":[]}`, `nuvio_snapshot_unavailable` log |
 | Provider download/load failure | provider skipped; snapshot activates if any provider loads |
 | Provider throws/timeouts | skipped; other providers' streams returned |
@@ -188,10 +193,10 @@ Vitest runs `tests/**/*.test.ts` in Node with a 30 s timeout. All HTTP is local 
 | `config.test.ts` | defaults, settings parsing, invalid env |
 | `codeberg.test.ts` | head/raw fetches, retries on 5xx, no retry on 404, unsafe paths |
 | `loader.test.ts` | TMDB key/settings/cheerio injection, `onSettings` defaults, missing `getStreams`, unknown require, supported types |
-| `snapshot.test.ts` | download/evaluate/persist/disk reload, stale fallback, branch fallback, disabled scrapers |
+| `snapshot.test.ts` | download/evaluate/persist/disk reload, bundled load, stale fallback, branch fallback, disabled scrapers |
 | `mapStreams.test.ts` | direct mapping, proxy gating, header filtering, subtitles, dedupe/sort, limits |
 | `userConfig.test.ts` | segment encode/parse, invalid/versioned defaults, resolution/size/subtitle filtering |
-| `pipeline.test.ts` | TMDB resolution, series args, partial results, deadline, caching, abort, empty snapshot |
+| `pipeline.test.ts` | TMDB resolution, series args, partial results, deadlines, per-provider timeout, caching, single-flight, abort, empty snapshot |
 | `routes.test.ts` | manifest, configure page, config-prefixed routes, URL filters, movie/series routes, invalid ids, thrown pipeline, HEAD, health, CORS, 404 |
 
 ## Security notes

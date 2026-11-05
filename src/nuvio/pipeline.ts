@@ -42,10 +42,18 @@ async function collectStreams(options: {
   scrapers: LoadedScraper[];
   concurrency: number;
   deadlineMs: number;
+  perProviderTimeoutMs: number;
   logger: LoggerLike;
   run: (scraper: LoadedScraper) => Promise<unknown[]>;
 }): Promise<CollectedStreams[]> {
-  const { scrapers, concurrency, deadlineMs, logger, run } = options;
+  const {
+    scrapers,
+    concurrency,
+    deadlineMs,
+    perProviderTimeoutMs,
+    logger,
+    run,
+  } = options;
   const results: CollectedStreams[] = [];
   const deadline = Date.now() + Math.max(1, deadlineMs);
   let cursor = 0;
@@ -63,9 +71,13 @@ async function collectStreams(options: {
         return;
       }
       try {
+        const timeoutMs =
+          perProviderTimeoutMs > 0
+            ? Math.min(remaining, perProviderTimeoutMs)
+            : remaining;
         const streams = await withTimeout(
           Promise.resolve(run(scraper)),
-          remaining,
+          timeoutMs,
           scraper.entry.id,
         );
         if (Array.isArray(streams)) results.push({ scraper, streams });
@@ -92,6 +104,7 @@ export class StreamPipeline {
   private readonly snapshots: SnapshotManager;
   private readonly cinemeta: CinemetaClient;
   private readonly cache = new Map<string, CacheEntry>();
+  private readonly inflight = new Map<string, Promise<StremioStream[]>>();
 
   constructor(options: StreamPipelineOptions) {
     this.config = options.config;
@@ -110,7 +123,25 @@ export class StreamPipeline {
     const cached = this.cache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) return cached.streams;
 
+    const existing = this.inflight.get(cacheKey);
+    if (existing) return existing;
+
     const startedAt = Date.now();
+    const task = this.produce(request, signal, cacheKey, startedAt);
+    this.inflight.set(cacheKey, task);
+    try {
+      return await task;
+    } finally {
+      this.inflight.delete(cacheKey);
+    }
+  }
+
+  private async produce(
+    request: StreamRequest,
+    signal: AbortSignal | undefined,
+    cacheKey: string,
+    startedAt: number,
+  ): Promise<StremioStream[]> {
     try {
       const tmdbId = await this.cinemeta.resolveTmdbId(request.type, request.imdbId);
       if (tmdbId === null) {
@@ -140,6 +171,7 @@ export class StreamPipeline {
         scrapers,
         concurrency: this.config.scraperConcurrency,
         deadlineMs: this.config.globalDeadlineMs,
+        perProviderTimeoutMs: this.config.scraperTimeoutMs,
         logger: this.logger,
         run: (scraper) =>
           scraper.getStreams(

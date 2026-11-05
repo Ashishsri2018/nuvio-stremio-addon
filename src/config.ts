@@ -69,10 +69,11 @@ const schema = z.object({
   NUVIO_SHA: z
     .string()
     .trim()
-    .regex(/^$|^[0-9a-fA-F]{7,40}$/, "must be a git commit sha")
+    .regex(/^$|^[0-9a-fA-F]{7,64}$/, "must be a git commit sha")
     .default(""),
   NUVIO_UPDATE_INTERVAL_HOURS: envNumber(24, 1, 168),
   NUVIO_CACHE_DIR: optionalString,
+  NUVIO_BUNDLED_DIR: optionalString,
   NUVIO_CONCURRENCY: envInt(8, 1, 32),
   SCRAPER_CONCURRENCY: envInt(12, 1, 60),
   SCRAPER_TIMEOUT_MS: envInt(12000, 1000, 120000),
@@ -144,6 +145,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     pinnedSha: value.NUVIO_SHA ? value.NUVIO_SHA.toLowerCase() : null,
     updateIntervalHours: value.NUVIO_UPDATE_INTERVAL_HOURS,
     cacheDir: path.resolve(value.NUVIO_CACHE_DIR ?? path.join(os.tmpdir(), "nuvio-addon")),
+    bundledDir: value.NUVIO_BUNDLED_DIR ? path.resolve(value.NUVIO_BUNDLED_DIR) : null,
     downloadConcurrency: value.NUVIO_CONCURRENCY,
     scraperConcurrency: value.SCRAPER_CONCURRENCY,
     scraperTimeoutMs: value.SCRAPER_TIMEOUT_MS,

@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { ConfigError, loadConfig } from "../src/config.js";
 
@@ -11,6 +12,17 @@ describe("loadConfig", () => {
     expect(config.scraperSettings).toEqual({});
     expect(config.cacheDir).toContain("nuvio-addon");
     expect(config.pinnedSha).toBeNull();
+    expect(config.bundledDir).toBeNull();
+  });
+
+  it("resolves a bundled snapshot directory and accepts SHA-256 pins", () => {
+    const sha = "a".repeat(64);
+    const config = loadConfig({
+      NUVIO_BUNDLED_DIR: "snapshot",
+      NUVIO_SHA: sha,
+    });
+    expect(config.bundledDir).toBe(path.resolve("snapshot"));
+    expect(config.pinnedSha).toBe(sha);
   });
 
   it("parses scraper settings and lists", () => {

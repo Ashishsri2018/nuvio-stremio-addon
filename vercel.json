@@ -1,5 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["fra1"],
+  "buildCommand": "npm run bake && npm run build",
   "outputDirectory": "public",
   "rewrites": [
     { "source": "/manifest.json", "destination": "/api/index" },
@@ -11,8 +13,8 @@
     { "source": "/:config/stream/:path*", "destination": "/api/index" }
   ],
   "functions": {
-    "api/index.ts": { "maxDuration": 60 },
-    "api/cron/refresh.ts": { "maxDuration": 60 }
+    "api/index.ts": { "maxDuration": 60, "includeFiles": "snapshot/**" },
+    "api/cron/refresh.ts": { "maxDuration": 60, "includeFiles": "snapshot/**" }
   },
   "crons": [
     { "path": "/api/cron/refresh", "schedule": "0 3 * * *" }

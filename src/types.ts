@@ -116,6 +116,7 @@ export interface AppConfig {
   pinnedSha: string | null;
   updateIntervalHours: number;
   cacheDir: string;
+  bundledDir: string | null;
   downloadConcurrency: number;
   scraperConcurrency: number;
   scraperTimeoutMs: number;

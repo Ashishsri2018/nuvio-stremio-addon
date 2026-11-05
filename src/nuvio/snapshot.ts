@@ -118,6 +118,8 @@ export class SnapshotManager {
       if (!force) {
         const fresh = await this.loadFromDisk(true);
         if (fresh) return this.activate(fresh);
+        const bundled = await this.loadBundled(true);
+        if (bundled) return this.activate(bundled);
       }
 
       const diskState = await this.readState();
@@ -169,6 +171,13 @@ export class SnapshotManager {
       await this.cleanupSnapshots(targetSha);
       return snapshot;
     } catch (error) {
+      const bundled = await this.loadBundled(false);
+      if (bundled) {
+        this.logger.warn("nuvio_snapshot_refresh_failed_using_bundled", {
+          error: errorMessage(error),
+        });
+        return this.activate(bundled);
+      }
       this.lastError = errorMessage(error);
       this.logger.error("nuvio_snapshot_refresh_failed", {
         error: this.lastError,
@@ -305,7 +314,45 @@ export class SnapshotManager {
     if (expectedSha && state.sha !== expectedSha) return null;
     if (requireFresh && !this.isFresh(state.fetchedAt)) return null;
 
-    const dir = this.snapshotDir(state.sha);
+    return this.loadFromDirectory(
+      this.snapshotDir(state.sha),
+      state.sha,
+      state.fetchedAt,
+    );
+  }
+
+  private async loadBundled(
+    requireFresh: boolean,
+  ): Promise<NuvioSnapshot | null> {
+    const dir = this.config.bundledDir;
+    if (!dir) return null;
+
+    let state: DiskState | null = null;
+    try {
+      const value = await readJsonFile<unknown>(path.join(dir, "state.json"));
+      if (
+        isRecord(value) &&
+        typeof value.sha === "string" &&
+        SNAPSHOT_ID.test(value.sha) &&
+        typeof value.fetchedAt === "number" &&
+        Number.isFinite(value.fetchedAt)
+      ) {
+        state = { sha: value.sha, fetchedAt: value.fetchedAt };
+      }
+    } catch {
+      return null;
+    }
+    if (!state) return null;
+    if (requireFresh && !this.isFresh(state.fetchedAt)) return null;
+
+    return this.loadFromDirectory(dir, state.sha, state.fetchedAt);
+  }
+
+  private async loadFromDirectory(
+    dir: string,
+    sha: string,
+    fetchedAt: number,
+  ): Promise<NuvioSnapshot | null> {
     try {
       const manifestBytes = await fs.readFile(path.join(dir, "manifest.json"));
       const manifest = parseNuvioManifest(manifestBytes);
@@ -328,10 +375,15 @@ export class SnapshotManager {
       const scrapers = await this.evaluateSnapshot(data);
       if (scrapers.length === 0) return null;
 
-      return { sha: state.sha, fetchedAt: state.fetchedAt, scrapers };
+      this.logger.info("nuvio_snapshot_loaded_from_directory", {
+        dir,
+        sha,
+        scrapers: scrapers.length,
+      });
+      return { sha, fetchedAt, scrapers };
     } catch (error) {
       this.logger.warn("nuvio_snapshot_disk_load_failed", {
-        sha: state.sha,
+        sha,
         error: errorMessage(error),
       });
       return null;
