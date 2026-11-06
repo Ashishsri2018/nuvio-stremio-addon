@@ -267,6 +267,31 @@ describe("SnapshotManager", () => {
     ).toMatchObject({ source: "bundled", sha: SHA });
   });
 
+  it("serves a stale bundled snapshot instead of waiting on Codeberg", async () => {
+    const dir = await tempDir("nuvio-bundled-");
+    await fs.mkdir(path.join(dir, "providers"), { recursive: true });
+    await fs.writeFile(path.join(dir, "manifest.json"), JSON.stringify(MANIFEST));
+    await fs.writeFile(path.join(dir, "providers/alpha.js"), providerCode("alpha"));
+    await fs.writeFile(path.join(dir, "providers/beta.js"), providerCode("beta"));
+    await fs.writeFile(
+      path.join(dir, "state.json"),
+      JSON.stringify({ sha: SHA, fetchedAt: Date.now() - 48 * 60 * 60 * 1000 }),
+    );
+
+    const config = await testConfig({ NUVIO_BUNDLED_DIR: dir });
+    const manager = new SnapshotManager(
+      config,
+      silentLogger(),
+      createClient("http://127.0.0.1:1"),
+    );
+
+    const started = Date.now();
+    const snapshot = await manager.ensure();
+    expect(snapshot?.sha).toBe(SHA);
+    expect(snapshot?.scrapers).toHaveLength(2);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
   it("honours the disabled scraper list", async () => {
     server = await startServer((req, res) => {
       if (req.url?.startsWith("/api/v1/repos/acme/plugin/commits")) {

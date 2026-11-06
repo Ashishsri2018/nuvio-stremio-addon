@@ -1,0 +1,28 @@
+name: Refresh bundled snapshot
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bake:
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run bake
+      - name: Verify baked snapshot
+        run: test -s snapshot/state.json
+      - name: Trigger Vercel deploy
+        if: env.VERCEL_DEPLOY_HOOK != ''
+        run: curl -fsS -X POST "$VERCEL_DEPLOY_HOOK"

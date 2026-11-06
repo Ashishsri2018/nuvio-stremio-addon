@@ -47,7 +47,8 @@ npm start          # node dist/src/local.js after build
 - Subtitle languages arrive as display names (`English`, `Brazilian`) from providers but as ISO codes in user config. `LANGUAGE_ALIASES` in `src/addon/userConfig.ts` maps names to codes; keep it updated when new provider language labels appear. `SCRAPER_CONCURRENCY` is capped at 60 in `src/config.ts`.
 - Providers read `TMDB_API_KEY` and `SCRAPER_SETTINGS` at module top level. Settings are applied in two passes (`onSettings` defaults first, env overrides win); re-evaluate the module if the merged settings change.
 - Some providers accept `supportedTypes: ["series"]`; `scraperSupports` treats `tv` and `series` as equivalent for Stremio series.
-- `SCRAPER_TIMEOUT_MS` is a hint; the pipeline's effective per-provider timeout is the remaining `GLOBAL_DEADLINE_MS`.
+- Each provider call times out at `min(SCRAPER_TIMEOUT_MS, remaining GLOBAL_DEADLINE_MS)`; slow providers are skipped without blocking the rest.
+- `NUVIO_BUNDLED_DIR` is a build-time snapshot (`npm run bake` writes `snapshot/`, gitignored, shipped via `includeFiles`). Cold instances serve it immediately; a stale bundled snapshot is served while Codeberg refreshes in the background. `.github/workflows/refresh-snapshot.yml` rebakes daily and triggers the `VERCEL_DEPLOY_HOOK` secret.
 - The stream cache is in-memory per function instance (`STREAM_CACHE_TTL_MS`, max 500 entries) and is skipped for aborted requests.
 - `nuvio_streams_resolved` is emitted once per stream request by `StreamPipeline.handle()`; any new return path must log exactly one summary (ids/counts/latencies only, never URLs or headers). `/health.providers` counters are also per instance and reset on cold start.
 - Vercel injects `x-vercel-id`/`x-invocation-id` into outbound fetches; providers may surface them in returned headers, which appear in `proxyHeaders`. This is expected.

@@ -120,8 +120,12 @@ export class SnapshotManager {
       if (!force) {
         const fresh = await this.loadFromDisk(true);
         if (fresh) return this.activate(fresh, "disk");
-        const bundled = await this.loadBundled(true);
-        if (bundled) return this.activate(bundled, "bundled");
+        const bundled = await this.loadBundled(false);
+        if (bundled && this.matchesPin(bundled.sha)) {
+          const active = this.activate(bundled, "bundled");
+          if (!this.isFresh(bundled.fetchedAt)) this.scheduleRefresh();
+          return active;
+        }
       }
 
       const diskState = await this.readState();
@@ -186,6 +190,17 @@ export class SnapshotManager {
       });
       return this.snapshot;
     }
+  }
+
+  private matchesPin(sha: string): boolean {
+    return !this.config.pinnedSha || sha.startsWith(this.config.pinnedSha);
+  }
+
+  private scheduleRefresh(): void {
+    const timer = setTimeout(() => {
+      void this.refresh(true).catch(() => undefined);
+    }, 0);
+    timer.unref?.();
   }
 
   private activate(

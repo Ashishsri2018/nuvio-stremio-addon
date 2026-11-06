@@ -102,7 +102,7 @@ curl localhost:7000/health
 
 ## Tests and CI
 
-- `npm test` runs Vitest with 70 tests across 8 files. Tests use local fixture HTTP servers only, so they need no network.
+- `npm test` runs Vitest with 85 tests across 9 files. Tests use local fixture HTTP servers only, so they need no network.
 - `npm run typecheck` covers `src/` and `api/`; `tests/` are checked by Vitest only.
 - GitHub Actions (`.github/workflows/ci.yml`) runs `npm ci`, `npm run typecheck`, `npm test`, and `npm run build` on every push to `main` and every PR. **CI is the source of truth** for compile and test failures.
 
@@ -122,6 +122,8 @@ vercel --prod --yes
 
 Vercel Git integration deploys pushes to `main` after CI. Deployment-specific `*.vercel.app` URLs are protected by Vercel Authentication; use the production alias. If Git integration is unavailable, run `vercel --prod --yes`.
 
+The `Refresh bundled snapshot` workflow (`.github/workflows/refresh-snapshot.yml`) runs daily at 04:00 UTC, bakes a fresh snapshot, and triggers a production build through the `nightly-snapshot` Vercel Deploy Hook. The hook URL is stored only as the GitHub Actions secret `VERCEL_DEPLOY_HOOK`; without it the scheduled job still runs `npm run bake` as an upstream health check.
+
 ## Operations
 
 ```bash
@@ -132,7 +134,7 @@ vercel logs https://nuvio-stremio-addon-nine.vercel.app
 vercel ls
 ```
 
-A cold function instance re-downloads the 51-provider snapshot, so the first stream request takes roughly 25-30 seconds. Warm requests finish at the global deadline or sooner. `/health` reports the active snapshot SHA, scraper count, and per-provider counters. Each stream request logs one `nuvio_streams_resolved` line with cache status, zero-hit/failed/skipped provider ids, the slowest provider, and total duration.
+A cold function instance loads the baked snapshot from disk in about a second, so the first stream request only pays for provider fan-out (bounded by `GLOBAL_DEADLINE_MS`). If the bundled snapshot is older than `NUVIO_UPDATE_INTERVAL_HOURS`, it is served immediately and Codeberg is refreshed in the background. `/health` reports the active snapshot SHA, scraper count, and per-provider counters. Each stream request logs one `nuvio_streams_resolved` line with cache status, zero-hit/failed/skipped provider ids, the slowest provider, and total duration.
 
 ## Limits and failure behavior
 
@@ -140,7 +142,7 @@ A cold function instance re-downloads the 51-provider snapshot, so the first str
 - At most 20 streams per provider and 300 overall, deduped by URL and sorted by inferred quality.
 - Per-install URL filters are applied after the shared pipeline cache, so different filter segments reuse the same upstream results.
 - Provider failures are logged and skipped; one bad scraper never fails a request.
-- Codeberg outages serve the last cached snapshot. With no snapshot, streams are empty and the request still returns 200.
+- Codeberg outages serve the last cached or bundled snapshot. With no snapshot, streams are empty and the request still returns 200.
 
 ## Security and risks
 

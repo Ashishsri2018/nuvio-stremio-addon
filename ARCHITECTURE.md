@@ -107,7 +107,7 @@ A snapshot is the upstream `manifest.json` plus enabled provider files, evaluate
 6. **Activation.** The in-memory snapshot reference is swapped only after a complete successful build. The old snapshot stays active on any failure and `lastError` is recorded.
 7. **Freshness.** `ensure()` treats a snapshot as fresh for `NUVIO_UPDATE_INTERVAL_HOURS` (default 24). `refresh(force)` bypasses freshness; the cron handler uses it. Concurrent callers share a single in-flight refresh promise.
 8. **Warm starts.** A fresh `state.json` lets a new function instance load the snapshot from disk without contacting Codeberg. On Vercel this only helps within the same instance's `/tmp`.
-9. **Bundled snapshot.** When `NUVIO_BUNDLED_DIR` is set, a fresh bundled snapshot is loaded before any network call, and a bundled snapshot is used as a last resort if a refresh fails. `npm run bake` writes it; `snapshot/` is gitignored and shipped to Vercel via `includeFiles`.
+9. **Bundled snapshot.** When `NUVIO_BUNDLED_DIR` is set, any bundled snapshot is loaded before a network download; a stale one is served immediately and a background forced refresh updates disk/memory. The bundled snapshot is also the last resort if a refresh fails. `npm run bake` writes it; `snapshot/` is gitignored and shipped to Vercel via `includeFiles`. `.github/workflows/refresh-snapshot.yml` rebakes daily and triggers a deploy hook so the bundled copy (and build-time SHA pin) stays current.
 
 `GET /health` exposes the active `sha`, `fetchedAt`, `scraperCount`, `lastError`, `refreshing`, and the per-provider `providers` block (see Observability).
 
