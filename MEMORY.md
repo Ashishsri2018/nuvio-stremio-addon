@@ -31,7 +31,7 @@ Working notes for continuity. Update this file after deployment, configuration, 
 
 Thirteen non-secret variables are configured in Production: the original eleven via `scripts/apply-vercel-env.sh`, plus `DISABLED_SCRAPERS` and `NUVIO_BUNDLED_DIR=snapshot` set directly on 2026-11-05.
 
-`LOG_LEVEL=info`, `NUVIO_SOURCE=eclipsia/nuvio-plugin`, `NUVIO_BRANCH=main`, `NUVIO_UPDATE_INTERVAL_HOURS=24`, `NUVIO_CONCURRENCY=16`, `SCRAPER_CONCURRENCY=60`, `SCRAPER_TIMEOUT_MS=12000`, `GLOBAL_DEADLINE_MS=30000`, `HTTP_TIMEOUT_MS=15000`, `STREAM_CACHE_TTL_MS=60000`, `PROXY_ENABLED=true`, `DISABLED_SCRAPERS=bdix-cf,bdix-df,bdix-fh`.
+`LOG_LEVEL=info`, `NUVIO_SOURCE=eclipsia/nuvio-plugin`, `NUVIO_BRANCH=main`, `NUVIO_UPDATE_INTERVAL_HOURS=24`, `NUVIO_CONCURRENCY=16`, `SCRAPER_CONCURRENCY=60`, `SCRAPER_TIMEOUT_MS=12000`, `GLOBAL_DEADLINE_MS=30000`, `HTTP_TIMEOUT_MS=15000`, `STREAM_CACHE_TTL_MS=180000`, `PROXY_ENABLED=true`, `DISABLED_SCRAPERS=bdix-cf,bdix-df,bdix-fh`.
 
 The bundled snapshot is active in Production: runtime logs show `nuvio_snapshot_activated` with `source:"bundled"`, 48 scrapers, and no Codeberg download on cold stream requests.
 
@@ -73,6 +73,7 @@ Secrets:
 - **BDIX providers disabled (2026-11-05).** `bdix-cf`, `bdix-df`, and `bdix-fh` target BDIX ISP-internal addresses (`15.1.1.50`, `172.16.50.x`) and `flixhub.net`; they time out from Vercel and normal networks, so they are in `DISABLED_SCRAPERS`.
 - **Observability is per-request logs plus per-instance counters (2026-11-05).** `nuvio_streams_resolved` is logged once per request from `StreamPipeline.handle()` with `cache`/`shared`/`outcome`, `zeroHits`, `failed`, `skipped`, `slowest`, and `durationMs`; cache hits reuse stored metadata. `nuvio_snapshot_activated` carries `source` (`disk`/`bundled`/`network`). `/health.providers` reports counters and nearest-rank p50/p95 from a 100-sample ring buffer; stats reset on cold start. Test count is now 85.
 - **Bundled snapshot is the cold-start baseline (2026-11-06).** `npm run bake` writes `snapshot/` at build time and Vercel ships it via `includeFiles`; runtime prefers it over any network download, serves stale copies immediately, and refreshes in the background. Codeberg remains the source for refreshes and the fallback path is inverted (bundled first, network on failure) to remove cold-start latency and outage sensitivity. A scheduled GitHub Actions job rebakes daily and redeploys through a deploy hook.
+- **Stream cache TTL is 3 minutes (2026-11-06).** Production `STREAM_CACHE_TTL_MS=180000` (was `60000`) to cut repeat fan-outs; `GLOBAL_DEADLINE_MS` stays at 30 s because Vercel caps functions at 60 s.
 - **Per-user filters via URL segment, vega-style.** `/<config>/manifest.json` carries a validated base64url JSON config; filtering runs in the route after the shared pipeline cache, so upstream work is never duplicated per user. Manifests are also served at `/manifest.json` (defaults) and the gear opens `/<config>/configure`.
 
 ## Deployment pitfalls already hit and fixed
@@ -90,7 +91,6 @@ Secrets:
 - Optionally set `TMDB_API_KEY` in Vercel (recommended if the embedded fallback key is rate-limited).
 - `SCRAPER_SETTINGS_JSON` now carries the `fjoral`/`pynvix` credentials; add preference toggles (jyniq, mavonyx, etc.) and `DISABLED_SCRAPERS` as needed.
 - Monitor the Vercel AUP risk: scraping/proxying is prohibited and Hobby is non-commercial. The owner explicitly accepted this risk.
-- Consider raising production `STREAM_CACHE_TTL_MS` from `60000` to `300000` to cut repeat fan-outs; do not raise `GLOBAL_DEADLINE_MS` instead (Vercel caps at 60 s).
 - If Vercel disables the deploy hook, recreate it and update the `VERCEL_DEPLOY_HOOK` GitHub secret; the scheduled job still bakes without it.
 - No lint/format tooling exists by design; CI runs typecheck, tests, and build only.
 

@@ -85,7 +85,7 @@ filterStreams(streams, parseUserConfig(req.params.config))
 200 {"streams":[...]} (always)
 ```
 
-The pipeline cache stores unfiltered streams keyed by `type:imdbId:season:episode`, so every config segment shares the same upstream work; filtering is applied per request. Identical requests that arrive while one is still running join that promise instead of starting a second fan-out. Production uses a 5-minute cache TTL; aborted requests bypass the cache.
+The pipeline cache stores unfiltered streams keyed by `type:imdbId:season:episode`, so every config segment shares the same upstream work; filtering is applied per request. Identical requests that arrive while one is still running join that promise instead of starting a second fan-out. Production uses a 3-minute cache TTL; aborted requests bypass the cache.
 
 `StreamRequest.type` is Stremio's `"movie"`/`"series"`; the provider-facing media type is `"movie"`/`"tv"`. Series-only ids without a season (`tt...:S`) are accepted and forward `episode === undefined`.
 
