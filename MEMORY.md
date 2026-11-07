@@ -22,7 +22,7 @@ Working notes for continuity. Update this file after deployment, configuration, 
 - `/configure` builds per-install filter URLs (max/min resolution, unknown-quality toggle, max size, subtitle languages). Filters are base64url JSON path segments; nothing is stored server-side and invalid segments fall back to defaults.
 - 2026-11-05: TODO #7 observability implemented and verified in production (commit `1420c94`; CI success, Vercel Ready). Cold stream request took 19.3 s and returned 30 streams; `/health` reported 48 scrapers (bdix disabled) and populated `providers` stats. `NUVIO_BUNDLED_DIR` was then enabled and verified: activation source `bundled`, pipeline duration 12.3 s (~1 s faster cold) versus 13.4 s via network.
 - 2026-11-06: Cold starts now serve the bundled snapshot regardless of age (stale data beats a 6-26 s download) and refresh Codeberg in the background. Added `.github/workflows/refresh-snapshot.yml`, which bakes daily at 04:00 UTC and triggers the `nightly-snapshot` Vercel Deploy Hook; its URL is stored only in the GitHub Actions secret `VERCEL_DEPLOY_HOOK` (set 2026-11-06).
-- 2026-11-07: Migrated to a new private Vercel project from the same GitHub repo. The new name/domain are intentionally not stored in any file; retrieve them with `vercel project inspect --json` from the linked project. Vercel GitHub deployment events, commit statuses, and PR comments are disabled so deployment URLs never appear in the public repo. The old project (`nuvio-stremio-addon`) is paused pending deletion; its public URL no longer serves streams and is not referenced by docs.
+- 2026-11-07: Migrated to a new private Vercel project from the same GitHub repo. The new name/domain are intentionally not stored in any file; retrieve them with `vercel project inspect --json` from the linked project. Vercel GitHub deployment events, commit statuses, and PR comments are disabled so deployment URLs never appear in the public repo. The hook-triggered production deployment is Ready; `/health` reports ok with 48 scrapers, movie/series smoke tests return streams, `/api/cron/refresh` returns 200, and public GitHub deployments/statuses/check-runs contain no new-name URLs. The old project (`nuvio-stremio-addon`) remains live until AIOStreams is switched to the new manifest URL; pause it only after cutover, then delete after 24-48 h.
 
 ## Production environment
 
@@ -86,7 +86,7 @@ Secrets:
 ## Open follow-ups
 
 - Re-add `SCRAPER_SETTINGS_JSON` (and optionally `TMDB_API_KEY`) in the new project; the old values are masked in Vercel and were not migrated.
-- Delete the paused old Vercel project once AIOStreams has used the new URL for 24-48h.
+- Pause the old Vercel project once AIOStreams has switched to the new URL; delete it after a 24-48 h rollback window.
 - `SCRAPER_SETTINGS_JSON` now carries the `fjoral`/`pynvix` credentials; add preference toggles (jyniq, mavonyx, etc.) and `DISABLED_SCRAPERS` as needed.
 - Monitor the Vercel AUP risk: scraping/proxying is prohibited and Hobby is non-commercial. The owner explicitly accepted this risk.
 - If Vercel disables the deploy hook, recreate it and update the `VERCEL_DEPLOY_HOOK` GitHub secret; the scheduled job still bakes without it.
