@@ -38,7 +38,7 @@ npm start          # node dist/src/local.js after build
 - **Use `nativeFetch` for internal HTTP.** Provider code receives the wrapped `fetch` from `src/nuvio/loader.ts`. Do not replace `globalThis.fetch`; internal calls (Codeberg, Cinemeta, TMDB) must use `nativeFetch` from `src/util/nativeFetch.ts`.
 - **Keep the `require` whitelist narrow** (`cheerio`, `cheerio-without-node-native`, `crypto-js`). Providers run without a sandbox; adding modules broadens third-party capabilities.
 - **Validate upstream paths and sizes** before evaluation (`src/source/codeberg.ts`, `src/nuvio/snapshot.ts`). Keep the path whitelist and size caps.
-- **Never log or commit secrets.** `TMDB_API_KEY`, `SCRAPER_SETTINGS_JSON` (may hold debrid keys), `CRON_SECRET`, `.env*`, `.vercel/`, and cookies must stay out of git and structured logs. The logger redacts sensitive key names and URL queries.
+- **Never log or commit secrets.** `TMDB_API_KEY`, `SCRAPER_SETTINGS_JSON` (may hold debrid keys), `CRON_SECRET`, `.env*`, `.vercel/`, and cookies must stay out of git and structured logs. The logger redacts sensitive key names and URL queries. The production domain and Vercel project name are also private: never write them to docs, workflows, commits, or logs.
 
 ## Gotchas
 
@@ -56,19 +56,19 @@ npm start          # node dist/src/local.js after build
 
 ## Deployment
 
-Active production: `https://nuvio-stremio-addon-nine.vercel.app` (see MEMORY.md).
+Active production: private URL, intentionally not recorded here. Retrieve it from the linked Vercel project (`vercel project inspect --json`) and never commit it.
 
 - The Vercel project framework preset **must be `Other`**. The Node preset looks for a root/`src` `app|index|server|main` entrypoint importing Express and fails the build otherwise. Do not rename `src/local.ts` back to `src/server.ts`; it is intentionally outside the detected entrypoint names.
 - `vercel.json` sets `outputDirectory: "public"` (placeholder `public/.gitkeep`), rewrites `/manifest.json`, `/stream/:path*`, and `/health` to `/api/index`, sets `maxDuration: 60`, and registers the cron `0 3 * * *`.
 - `api/index.ts` default-exports the Express app; `api/cron/refresh.ts` checks `Authorization: Bearer $CRON_SECRET` and forces a refresh. Do not add a `builds` array to `vercel.json`; explicit `@vercel/node` builds produced unreachable routes here.
 - Non-secret env: edit `deploy/vercel.env` and run `./scripts/apply-vercel-env.sh` (applies one variable at a time; requires a linked project). Secrets are added directly in Vercel; `CRON_SECRET` is stored there and locally at `/root/.nuvio-cron-secret` (never commit).
-- Pushing to `main` runs CI and triggers a Vercel production deploy through Git integration. Verify after deploy:
+- Pushing to `main` runs CI and triggers a Vercel production deploy through Git integration. Set `PRODUCTION_URL` from the linked Vercel project (never commit it), then verify:
   ```bash
-  curl https://nuvio-stremio-addon-nine.vercel.app/manifest.json
-  curl -i https://nuvio-stremio-addon-nine.vercel.app/configure
-  curl 'https://nuvio-stremio-addon-nine.vercel.app/stream/movie/tt0133093.json'
-  curl 'https://nuvio-stremio-addon-nine.vercel.app/stream/series/tt0944947:1:1.json'
-  curl https://nuvio-stremio-addon-nine.vercel.app/health
+  curl "$PRODUCTION_URL/manifest.json"
+  curl -i "$PRODUCTION_URL/configure"
+  curl "$PRODUCTION_URL/stream/movie/tt0133093.json"
+  curl "$PRODUCTION_URL/stream/series/tt0944947:1:1.json"
+  curl "$PRODUCTION_URL/health"
   ```
 - Deployment-specific `*.vercel.app` URLs are behind Vercel Authentication (302). Use the production alias for public checks or `vercel curl` for protected URLs.
 - Manual fallback: `vercel --prod --yes` from the repo root.

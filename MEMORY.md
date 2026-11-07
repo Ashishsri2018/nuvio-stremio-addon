@@ -1,6 +1,6 @@
 # Project Memory
 
-Working notes for continuity. Update this file after deployment, configuration, or architecture changes. Facts are as of **2026-11-05**.
+Working notes for continuity. Update this file after deployment, configuration, or architecture changes. Facts are as of **2026-11-07**.
 
 ## Identity
 
@@ -8,11 +8,7 @@ Working notes for continuity. Update this file after deployment, configuration, 
 | --- | --- |
 | Local path | `/root/iptv/nuvio-stremio-addon` |
 | GitHub repo | `https://github.com/Ashishsri2018/nuvio-stremio-addon` (public) |
-| Vercel project | `ashishsri2018-7679s-projects/nuvio-stremio-addon` |
-| Vercel project id | `prj_TN1aeAtSdDRDSFUWFqA7w5gplUI4` |
-| Production URL | `https://nuvio-stremio-addon-nine.vercel.app` |
-| Install URL | `https://nuvio-stremio-addon-nine.vercel.app/manifest.json` |
-| Configure page | `https://nuvio-stremio-addon-nine.vercel.app/configure` (per-install filters in the URL) |
+| Vercel project | linked locally via `.vercel/project.json` (gitignored); name/domain intentionally not recorded |
 | Framework preset | **Other** (required, see pitfalls) |
 | Vercel Node runtime | 26.x (project default); `package.json` requires >= 22 |
 | Upstream source | `eclipsia/nuvio-plugin`, branch `main` |
@@ -26,10 +22,11 @@ Working notes for continuity. Update this file after deployment, configuration, 
 - `/configure` builds per-install filter URLs (max/min resolution, unknown-quality toggle, max size, subtitle languages). Filters are base64url JSON path segments; nothing is stored server-side and invalid segments fall back to defaults.
 - 2026-11-05: TODO #7 observability implemented and verified in production (commit `1420c94`; CI success, Vercel Ready). Cold stream request took 19.3 s and returned 30 streams; `/health` reported 48 scrapers (bdix disabled) and populated `providers` stats. `NUVIO_BUNDLED_DIR` was then enabled and verified: activation source `bundled`, pipeline duration 12.3 s (~1 s faster cold) versus 13.4 s via network.
 - 2026-11-06: Cold starts now serve the bundled snapshot regardless of age (stale data beats a 6-26 s download) and refresh Codeberg in the background. Added `.github/workflows/refresh-snapshot.yml`, which bakes daily at 04:00 UTC and triggers the `nightly-snapshot` Vercel Deploy Hook; its URL is stored only in the GitHub Actions secret `VERCEL_DEPLOY_HOOK` (set 2026-11-06).
+- 2026-11-07: Migrated to a new private Vercel project from the same GitHub repo. The new name/domain are intentionally not stored in any file; retrieve them with `vercel project inspect --json` from the linked project. Vercel GitHub deployment events, commit statuses, and PR comments are disabled so deployment URLs never appear in the public repo. The old project (`nuvio-stremio-addon`) is paused pending deletion; its public URL no longer serves streams and is not referenced by docs.
 
 ## Production environment
 
-Thirteen non-secret variables are configured in Production: the original eleven via `scripts/apply-vercel-env.sh`, plus `DISABLED_SCRAPERS` and `NUVIO_BUNDLED_DIR=snapshot` set directly on 2026-11-05.
+Thirteen non-secret variables are configured in Production via `scripts/apply-vercel-env.sh` (including `DISABLED_SCRAPERS` and `NUVIO_BUNDLED_DIR=snapshot`).
 
 `LOG_LEVEL=info`, `NUVIO_SOURCE=eclipsia/nuvio-plugin`, `NUVIO_BRANCH=main`, `NUVIO_UPDATE_INTERVAL_HOURS=24`, `NUVIO_CONCURRENCY=16`, `SCRAPER_CONCURRENCY=60`, `SCRAPER_TIMEOUT_MS=12000`, `GLOBAL_DEADLINE_MS=30000`, `HTTP_TIMEOUT_MS=15000`, `STREAM_CACHE_TTL_MS=180000`, `PROXY_ENABLED=true`, `DISABLED_SCRAPERS=bdix-cf,bdix-df,bdix-fh`.
 
@@ -39,8 +36,8 @@ Secrets:
 
 - GitHub Actions secret `VERCEL_DEPLOY_HOOK` holds the `nightly-snapshot` deploy hook URL used by the scheduled snapshot workflow. Never print or commit it.
 - `CRON_SECRET` is set in Vercel Production. A local copy used for smoke tests lives at `/root/.nuvio-cron-secret` (mode 600, outside the repo). Never commit or echo it.
-- `TMDB_API_KEY` is **not** set; providers use their embedded fallback key (verified working).
-- `SCRAPER_SETTINGS_JSON` is set in Vercel Production with `fjoral.cinemaTvToken` (bollywood.eu.org) and `pynvix.uiToken` (FebBox `ui` cookie). These are the only two providers that require user credentials; never write them to `deploy/vercel.env` or git.
+- `TMDB_API_KEY` is **not** set in the new project; providers use their embedded fallback key. The old project had it, but Vercel masks secret values and it was not migrated.
+- `SCRAPER_SETTINGS_JSON` is **not** set in the new project yet. The old project has it (`fjoral.cinemaTvToken` for bollywood.eu.org and `pynvix.uiToken` for the FebBox `ui` cookie), but the value is write-only in Vercel. Re-add it in Vercel Production to restore `fjoral`/`pynvix`; never write it to `deploy/vercel.env` or git.
 
 ## Verified behavior (2026-11-05)
 
@@ -83,12 +80,13 @@ Secrets:
 3. Renaming `src/server.ts` to `src/local.ts` changed the error to `No entrypoint found` (the Node preset always requires a server entrypoint). Removing the `start` script did not help.
 4. Setting `"framework": null` in `vercel.json` switched to a static build and failed with `STATIC_BUILD_NO_OUT_DIR`.
 5. Explicit `builds: [{ use: "@vercel/node" }]` built functions but produced a config without reachable routes; `/manifest.json` and `/api/index` 404'd.
-6. The working fix: set the project framework preset to `other` (`vercel project update nuvio-stremio-addon --framework other --yes`), set `"outputDirectory": "public"` in `vercel.json`, and keep a placeholder `public/.gitkeep`. Functions are emitted as `api/index.func` and `api/cron/refresh.func` and the rewrites resolve.
-7. Deployment-specific `*.vercel.app` URLs are protected by Vercel Authentication (302 to `sso-api`). Use `https://nuvio-stremio-addon-nine.vercel.app` for public checks; `vercel curl` bypasses protection.
+6. The working fix: set the project framework preset to `other` (`vercel project update --framework other --yes` against the linked project), set `"outputDirectory": "public"` in `vercel.json`, and keep a placeholder `public/.gitkeep`. Functions are emitted as `api/index.func` and `api/cron/refresh.func` and the rewrites resolve.
+7. Deployment-specific `*.vercel.app` URLs are protected by Vercel Authentication (302 to `sso-api`). Use the private production alias for public checks; `vercel curl` bypasses protection. The alias is not recorded in this repo.
 
 ## Open follow-ups
 
-- Optionally set `TMDB_API_KEY` in Vercel (recommended if the embedded fallback key is rate-limited).
+- Re-add `SCRAPER_SETTINGS_JSON` (and optionally `TMDB_API_KEY`) in the new project; the old values are masked in Vercel and were not migrated.
+- Delete the paused old Vercel project once AIOStreams has used the new URL for 24-48h.
 - `SCRAPER_SETTINGS_JSON` now carries the `fjoral`/`pynvix` credentials; add preference toggles (jyniq, mavonyx, etc.) and `DISABLED_SCRAPERS` as needed.
 - Monitor the Vercel AUP risk: scraping/proxying is prohibited and Hobby is non-commercial. The owner explicitly accepted this risk.
 - If Vercel disables the deploy hook, recreate it and update the `VERCEL_DEPLOY_HOOK` GitHub secret; the scheduled job still bakes without it.

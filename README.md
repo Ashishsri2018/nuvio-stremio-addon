@@ -2,9 +2,9 @@
 
 Stremio stream addon that downloads the [eclipsia/nuvio-plugin](https://codeberg.org/eclipsia/nuvio-plugin) scraper bundle and runs its providers server-side. Providers are invoked as `getStreams(tmdbId, "movie"|"tv", season, episode)`; Stremio's IMDb ids are mapped to TMDB through Cinemeta.
 
-Install: `https://nuvio-stremio-addon-nine.vercel.app/manifest.json`
+The production install URL is private and intentionally not published. This addon is installed through AIOStreams; the URL is stored only in the Vercel project and the AIOStreams configuration. If you have access to the Vercel project, retrieve it with `vercel project inspect --json` and never commit it.
 
-To filter streams per install, open `https://nuvio-stremio-addon-nine.vercel.app/configure` and install the URL it generates (for example, a 720p maximum). Filters travel in the URL; nothing is stored server-side.
+To filter streams per install, open the deployment's `/configure` page (`$PRODUCTION_URL/configure`) and install the URL it generates (for example, a 720p maximum). Filters travel in the URL; nothing is stored server-side.
 
 ## How it works
 
@@ -111,10 +111,11 @@ curl localhost:7000/health
 The Vercel project must use the `Other` framework preset. Vercel's Node preset treats a `server`/`app`/`index` entrypoint as an Express backend and refuses to build the `api/` functions otherwise:
 
 ```bash
-vercel link --yes --project nuvio-stremio-addon
-vercel project update nuvio-stremio-addon --framework other --yes
+vercel link                          # select the existing project; do not record its name
+vercel project update --framework other --node-version 26.x \
+  --no-github-deployment-events --no-git-commit-status --no-git-pr-comments --yes
 ./scripts/apply-vercel-env.sh
-openssl rand -hex 32 | vercel env add CRON_SECRET production
+openssl rand -hex 32 | vercel env add CRON_SECRET --environment production
 vercel --prod --yes
 ```
 
@@ -127,10 +128,12 @@ The `Refresh bundled snapshot` workflow (`.github/workflows/refresh-snapshot.yml
 ## Operations
 
 ```bash
-curl https://nuvio-stremio-addon-nine.vercel.app/health
+# PRODUCTION_URL is private; retrieve it from the linked Vercel project and never commit it.
+export PRODUCTION_URL="https://<private-domain>"
+curl "$PRODUCTION_URL/health"
 curl -H "Authorization: Bearer $CRON_SECRET" \
-  https://nuvio-stremio-addon-nine.vercel.app/api/cron/refresh
-vercel logs https://nuvio-stremio-addon-nine.vercel.app
+  "$PRODUCTION_URL/api/cron/refresh"
+vercel logs "$PRODUCTION_URL"
 vercel ls
 ```
 

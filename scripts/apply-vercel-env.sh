@@ -15,7 +15,7 @@ if [ ! -f "$env_file" ]; then
 fi
 
 if [ ! -f ".vercel/project.json" ]; then
-  echo "run 'vercel link --yes --project nuvio-stremio-addon' first" >&2
+  echo "run 'vercel link' first" >&2
   exit 1
 fi
 
