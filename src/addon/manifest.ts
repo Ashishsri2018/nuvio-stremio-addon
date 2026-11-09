@@ -10,7 +10,7 @@ export function getManifest(): StremioManifest {
     name: "Nuvio Streams",
     description: "Streams from Nuvio/Eclipsia providers",
     types: ["movie", "series"],
-    resources: ["stream"],
+    resources: ["stream", "subtitles"],
     idPrefixes: ["tt"],
     catalogs: [],
     behaviorHints: { configurable: true },

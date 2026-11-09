@@ -15,6 +15,8 @@ Working notes for continuity. Update this file after deployment, configuration, 
 
 ## Current state
 
+- 2026-11-08: Added the `subtitles` resource (`/subtitles/:type/:id.json` and `/:config/...`). `StreamPipeline.collectSubtitles()` reuses `handle()` so it shares the stream cache/fan-out, flattens inline `stream.subtitles`, and dedupes by URL. Reason: Nuvio Mobile ignores inline stream subtitles and only queries addons declaring a `subtitles` resource. Route uses `/:path*` because Express 4 / path-to-regexp 0.1 has no optional-param groups for the Stremio extras segment. `vercel.json` gained `/subtitles/:path*` and `/:config/subtitles/:path*` rewrites.
+
 - Last code commit verified end-to-end: `10fb616` ("Add /configure page with URL-embedded stream filters").
 - GitHub Actions CI passed for that commit (`typecheck`, `test`, `build`, 66 tests) and Vercel deployed it to Production (`Ready`).
 - Vercel Git integration is connected: pushes to `main` create production deployments automatically.

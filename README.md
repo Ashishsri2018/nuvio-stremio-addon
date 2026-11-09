@@ -10,6 +10,7 @@ To filter streams per install, open the deployment's `/configure` page (`$PRODUC
 
 - `/manifest.json` is static and never calls upstream.
 - `/stream/movie/tt...json` and `/stream/series/tt...:S:E.json` resolve the TMDB id, fan out to enabled providers, and always return HTTP 200 (empty `streams` on any failure).
+- `/subtitles/movie/tt...json` and `/subtitles/series/tt...:S:E.json` aggregate the provider subtitle tracks found for that title (deduped by URL) for clients such as Nuvio Mobile that only query addons declaring a `subtitles` resource. They reuse the stream pipeline and its 3-minute cache.
 - Stream URLs are the provider's direct URLs. When `PROXY_ENABLED=true`, provider headers are attached as `behaviorHints.proxyHeaders.request`; the addon never proxies or rewrites media URLs.
 - A provider snapshot is downloaded from Codeberg at most once per `NUVIO_UPDATE_INTERVAL_HOURS` (default 24), cached under `NUVIO_CACHE_DIR` (default `/tmp/nuvio-addon` on Vercel), and swapped atomically. A stale snapshot is served if upstream is unavailable.
 - Production ships a baked snapshot (`snapshot/`, built by `npm run bake`) so cold instances load providers from disk instead of waiting on Codeberg.
@@ -23,12 +24,14 @@ To filter streams per install, open the deployment's `/configure` page (`$PRODUC
 | `GET /:config/manifest.json` | Same manifest under a filter segment. |
 | `GET /stream/:type/:id.json` | Movie (`tt...`) or series (`tt...:S:E`) streams, always HTTP 200, `no-store`. |
 | `GET /:config/stream/:type/:id.json` | Same stream route, filtered by the URL segment. |
+| `GET /subtitles/:type/:id.json` | Provider subtitle tracks as `{id, url, lang}`, deduped by URL, always HTTP 200. An optional Stremio extras segment (`/<extras>.json`) is accepted and ignored. |
+| `GET /:config/subtitles/:type/:id.json` | Same subtitle route under a filter segment. |
 | `GET /configure` | HTML page that builds a filtered install URL. |
 | `GET /:config/configure` | Same page, prefilled from the segment (Stremio's gear icon). |
 | `GET /health` | Snapshot status (`status`, `sha`, `fetchedAt`, `scraperCount`, `lastError`, `refreshing`) plus in-memory per-provider stats (`providers`: calls, responded/empty, errors/timeouts/skips, success rate, p50/p95 latency). Counters reset on cold start. |
 | `GET /api/cron/refresh` | Forces a snapshot refresh; requires `Authorization: Bearer $CRON_SECRET`. |
 
-Invalid ids, unresolvable TMDB ids, missing snapshots, and provider failures all return `{"streams":[]}` with HTTP 200.
+Invalid ids, unresolvable TMDB ids, missing snapshots, and provider failures all return `{"streams":[]}` (or `{"subtitles":[]}` on subtitle routes) with HTTP 200.
 
 ## User configuration
 

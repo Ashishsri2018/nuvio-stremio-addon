@@ -3,6 +3,7 @@ import type {
   LoadedScraper,
   LoggerLike,
   StremioStream,
+  StremioSubtitle,
   StreamRequest,
 } from "../types.js";
 import type { CinemetaClient } from "../cinemeta/client.js";
@@ -205,6 +206,23 @@ export class StreamPipeline {
 
   getProviderStats(): ProviderStatsReport {
     return this.metrics.report();
+  }
+
+  async collectSubtitles(
+    request: StreamRequest,
+    signal?: AbortSignal,
+  ): Promise<StremioSubtitle[]> {
+    const streams = await this.handle(request, signal);
+    const seenUrls = new Set<string>();
+    const subtitles: StremioSubtitle[] = [];
+    for (const stream of streams) {
+      for (const track of stream.subtitles ?? []) {
+        if (seenUrls.has(track.url)) continue;
+        seenUrls.add(track.url);
+        subtitles.push(track);
+      }
+    }
+    return subtitles;
   }
 
   async handle(

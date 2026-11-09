@@ -54,11 +54,31 @@ async function createServer(
           name: "Alpha",
           url: "https://cdn.test/movie.mp4",
           behaviorHints: { bingeGroup: "alpha-1080p" },
+          subtitles: [
+            { id: "alpha-0", url: "https://cdn.test/en.vtt", lang: "English" },
+            { id: "alpha-0-1", url: "https://cdn.test/hi.vtt", lang: "Hindi" },
+          ],
         },
       ];
     });
 
-  const pipeline = { handle, getProviderStats: providerStats } as unknown as StreamPipeline;
+  const pipeline = {
+    handle,
+    collectSubtitles: async (request: StreamRequest, signal?: AbortSignal) => {
+      const streams = await handle(request, signal);
+      const seen = new Set<string>();
+      const subtitles = [];
+      for (const stream of streams) {
+        for (const track of stream.subtitles ?? []) {
+          if (seen.has(track.url)) continue;
+          seen.add(track.url);
+          subtitles.push(track);
+        }
+      }
+      return subtitles;
+    },
+    getProviderStats: providerStats,
+  } as unknown as StreamPipeline;
   const snapshots = { getHealth: () => HEALTH } as unknown as SnapshotManager;
   const config = await testConfig();
   const app = createApp({ config, logger: silentLogger(), pipeline, snapshots });
@@ -81,7 +101,7 @@ describe("addon routes", () => {
     };
     expect(manifest.id).toBe("community.nuvio.stremio");
     expect(manifest.types).toEqual(["movie", "series"]);
-    expect(manifest.resources).toEqual(["stream"]);
+    expect(manifest.resources).toEqual(["stream", "subtitles"]);
     expect(manifest.idPrefixes).toEqual(["tt"]);
     expect(manifest.behaviorHints).toEqual({ configurable: true });
   });
@@ -185,6 +205,79 @@ describe("addon routes", () => {
   it("answers HEAD requests without running the pipeline", async () => {
     const { running, calls } = await createServer();
     const response = await fetch(`${running.url}/stream/movie/tt0133093.json`, {
+      method: "HEAD",
+    });
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([]);
+  });
+
+  it("aggregates provider subtitles for movie and series requests", async () => {
+    const { running, calls } = await createServer();
+    const movie = await fetch(`${running.url}/subtitles/movie/tt0133093.json`);
+    expect(movie.status).toBe(200);
+    expect(movie.headers.get("cache-control")).toBe("no-store");
+    expect(await movie.json()).toEqual({
+      subtitles: [
+        { id: "alpha-0", url: "https://cdn.test/en.vtt", lang: "English" },
+        { id: "alpha-0-1", url: "https://cdn.test/hi.vtt", lang: "Hindi" },
+      ],
+    });
+
+    const series = await fetch(
+      `${running.url}/subtitles/series/tt0944947:1:2.json`,
+    );
+    expect(series.status).toBe(200);
+    expect(calls).toEqual([
+      { type: "movie", imdbId: "tt0133093" },
+      { type: "series", imdbId: "tt0944947", season: 1, episode: 2 },
+    ]);
+  });
+
+  it("accepts the Stremio extras segment and config prefix on subtitle routes", async () => {
+    const { running, calls } = await createServer();
+    const segment = Buffer.from(
+      JSON.stringify({ v: 1, maxRes: 720 }),
+      "utf8",
+    ).toString("base64url");
+
+    for (const path of [
+      "/subtitles/movie/tt0133093/videoHash=abc&filename=movie.mkv.json",
+      `/${segment}/subtitles/movie/tt0133093.json`,
+    ]) {
+      const response = await fetch(`${running.url}${path}`);
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { subtitles: unknown[] };
+      expect(body.subtitles).toHaveLength(2);
+    }
+    expect(calls).toHaveLength(2);
+  });
+
+  it("returns 200 with empty subtitles for invalid ids and failures", async () => {
+    const ok = await createServer();
+    for (const path of [
+      "/subtitles/movie/not-an-imdb.json",
+      "/subtitles/series/tt0944947.json",
+      "/subtitles/foo/tt0944947.json",
+    ]) {
+      const response = await fetch(`${ok.running.url}${path}`);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ subtitles: [] });
+    }
+    expect(ok.calls).toEqual([]);
+
+    const failing = await createServer(async () => {
+      throw new Error("failure");
+    });
+    const broken = await fetch(
+      `${failing.running.url}/subtitles/movie/tt0133093.json`,
+    );
+    expect(broken.status).toBe(200);
+    expect(await broken.json()).toEqual({ subtitles: [] });
+  });
+
+  it("answers HEAD subtitle requests without running the pipeline", async () => {
+    const { running, calls } = await createServer();
+    const response = await fetch(`${running.url}/subtitles/movie/tt0133093.json`, {
       method: "HEAD",
     });
     expect(response.status).toBe(200);

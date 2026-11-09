@@ -7,10 +7,12 @@
     { "source": "/manifest.json", "destination": "/api/index" },
     { "source": "/configure", "destination": "/api/index" },
     { "source": "/stream/:path*", "destination": "/api/index" },
+    { "source": "/subtitles/:path*", "destination": "/api/index" },
     { "source": "/health", "destination": "/api/index" },
     { "source": "/:config/manifest.json", "destination": "/api/index" },
     { "source": "/:config/configure", "destination": "/api/index" },
-    { "source": "/:config/stream/:path*", "destination": "/api/index" }
+    { "source": "/:config/stream/:path*", "destination": "/api/index" },
+    { "source": "/:config/subtitles/:path*", "destination": "/api/index" }
   ],
   "functions": {
     "api/index.ts": { "maxDuration": 60, "includeFiles": "snapshot/**" },

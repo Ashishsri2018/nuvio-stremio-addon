@@ -19,7 +19,7 @@ src/
   logger.ts              structured JSON logger with key/URL redaction
   types.ts               Stremio, Nuvio, config, health types
   addon/
-    app.ts               Express routes, CORS, always-200 semantics, per-request filtering
+    app.ts               Express routes (streams, subtitles), CORS, always-200 semantics, per-request filtering
     manifest.ts          static Stremio manifest
     configure.ts         static /configure HTML page
     userConfig.ts        base64url filter segment: schema, encode/parse, filterStreams
@@ -31,7 +31,7 @@ src/
     manifest.ts          upstream manifest.json validation + scraper selection
     loader.ts            provider module evaluation, shims, two-pass settings
     snapshot.ts          SnapshotManager: TTL, disk cache, atomic swap
-    pipeline.ts          TMDB resolution, fan-out, deadlines, stream cache
+    pipeline.ts          TMDB resolution, fan-out, deadlines, stream cache, subtitle aggregation
   util/
     nativeFetch.ts       bound original global fetch
     concurrency.ts       Semaphore, mapLimit, mapLimitSettled, withTimeout, sleep
@@ -84,6 +84,8 @@ filterStreams(streams, parseUserConfig(req.params.config))
         v
 200 {"streams":[...]} (always)
 ```
+
+`GET /subtitles/:type/:id.json` (and the `/:config` variant) runs the same `pipeline.handle()` request — so it hits the same cache or joins the same fan-out — then `StreamPipeline.collectSubtitles()` flattens `stream.subtitles` across the returned streams and dedupes by URL. The response is `{"subtitles":[{"id","url","lang"}]}` with HTTP 200 on every path, including invalid ids and failures. User filters are not applied. The route captures `/:type/:path*` because Stremio appends an optional `/<extras>.json` segment (`videoHash`, `filename`, …) that `parseStreamId` ignores. Nuvio Mobile never reads inline `streams[].subtitles` and only queries addons advertising a `subtitles` resource, so this route is what makes provider tracks visible there.
 
 The pipeline cache stores unfiltered streams keyed by `type:imdbId:season:episode`, so every config segment shares the same upstream work; filtering is applied per request. Identical requests that arrive while one is still running join that promise instead of starting a second fan-out. Production uses a 3-minute cache TTL; aborted requests bypass the cache.
 
@@ -156,14 +158,14 @@ Provider execution is in-process and unsandboxed. The trust boundary is the pinn
 `src/addon/app.ts` builds an Express app with:
 
 - CORS `*` for `GET, HEAD, OPTIONS`; `OPTIONS` returns 204.
-- `GET /manifest.json` and `GET /:config/manifest.json` (5-minute cache), `GET /configure` and `GET /:config/configure` (HTML, 5-minute cache), `GET /stream/:type/:id.json`, `GET /:config/stream/:type/:id.json`, and the non-`.json` variants (`no-store`), `GET /health` (`no-store`).
-- Stream requests catch all pipeline errors and return HTTP 200 with `{streams: []}`. Invalid ids short-circuit without touching the network. `HEAD` on a stream route returns 200 without running the pipeline. After the pipeline resolves, `filterStreams` applies the URL segment's user config; an invalid segment yields unfiltered defaults.
+- `GET /manifest.json` and `GET /:config/manifest.json` (5-minute cache), `GET /configure` and `GET /:config/configure` (HTML, 5-minute cache), `GET /stream/:type/:id.json`, `GET /:config/stream/:type/:id.json`, and the non-`.json` variants (`no-store`), `GET /subtitles/:type/:path*` and `GET /:config/subtitles/:type/:path*` (`no-store`; `path*` absorbs the optional Stremio extras segment), `GET /health` (`no-store`).
+- Stream requests catch all pipeline errors and return HTTP 200 with `{streams: []}`. Invalid ids short-circuit without touching the network. `HEAD` on a stream route returns 200 without running the pipeline. After the pipeline resolves, `filterStreams` applies the URL segment's user config; an invalid segment yields unfiltered defaults. Subtitle requests mirror this: HTTP 200 `{subtitles: []}` on invalid ids or errors, `HEAD` short-circuits, no user filtering.
 - Unknown routes return JSON 404; a final error handler returns JSON 500 only if headers were not sent.
 
 ## Vercel deployment shape
 
 - `api/index.ts` calls `getRuntime()` and default-exports the Express app. `api/cron/refresh.ts` verifies `Authorization: Bearer $CRON_SECRET`, calls `snapshots.refresh(true)`, and returns the health report.
-- `vercel.json` rewrites `/manifest.json`, `/configure`, `/stream/:path*`, `/health`, `/:config/manifest.json`, `/:config/configure`, and `/:config/stream/:path*` to `/api/index`; sets `buildCommand` to `npm run bake && npm run build`, pins `regions` to `fra1`, sets `maxDuration: 60` and `includeFiles: snapshot/**` for both functions, schedules `/api/cron/refresh` at `0 3 * * *`, and sets `outputDirectory: public`. `/api/cron/refresh` remains a filesystem route and is not matched by these patterns.
+- `vercel.json` rewrites `/manifest.json`, `/configure`, `/stream/:path*`, `/subtitles/:path*`, `/health`, `/:config/manifest.json`, `/:config/configure`, `/:config/stream/:path*`, and `/:config/subtitles/:path*` to `/api/index`; sets `buildCommand` to `npm run bake && npm run build`, pins `regions` to `fra1`, sets `maxDuration: 60` and `includeFiles: snapshot/**` for both functions, schedules `/api/cron/refresh` at `0 3 * * *`, and sets `outputDirectory: public`. `/api/cron/refresh` remains a filesystem route and is not matched by these patterns.
 - The project must use the **Other** framework preset. The Node preset looks for a root/`src` `app|index|server|main` entrypoint that imports Express and otherwise fails with `No entrypoint found which imports express`; our Express app lives in `src/addon/app.ts`, so the preset is cleared with `vercel project update --framework other --yes` against the linked project.
 - `public/` exists only to satisfy the static stage that the Other preset builds alongside `api/` functions.
 - The only writable path is `/tmp`, so `NUVIO_CACHE_DIR` defaults to `/tmp/nuvio-addon`. The cron prewarms whichever instance receives it; it cannot warm all instances.
@@ -205,7 +207,7 @@ Vitest runs `tests/**/*.test.ts` in Node with a 30 s timeout. All HTTP is local 
 | `userConfig.test.ts` | segment encode/parse, invalid/versioned defaults, resolution/size/subtitle filtering |
 | `pipeline.test.ts` | TMDB resolution, series args, partial results, deadlines, per-provider timeout, caching, single-flight, abort, empty snapshot, request summaries, deadline skips, provider stats |
 | `metrics.test.ts` | counters, deadline skips, ring-buffer eviction, nearest-rank percentiles, success rates |
-| `routes.test.ts` | manifest, configure page, config-prefixed routes, URL filters, movie/series routes, invalid ids, thrown pipeline, HEAD, health (including provider stats), CORS, 404 |
+| `routes.test.ts` | manifest, configure page, config-prefixed routes, URL filters, movie/series routes, subtitle routes (aggregation, extras segment, invalid ids, failures, HEAD), invalid ids, thrown pipeline, HEAD, health (including provider stats), CORS, 404 |
 
 ## Security notes
 
