@@ -87,6 +87,23 @@ async function createServer(
 }
 
 describe("addon routes", () => {
+  it("serves a root endpoint that supports GET and HEAD", async () => {
+    const { running } = await createServer();
+    const response = await fetch(`${running.url}/`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({
+      addon: "community.nuvio.stremio",
+      manifest: "/manifest.json",
+      configure: "/configure",
+      health: "/health",
+    });
+
+    const head = await fetch(`${running.url}/`, { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe("");
+  });
+
   it("serves the Stremio manifest with CORS", async () => {
     const { running } = await createServer();
     const response = await fetch(`${running.url}/manifest.json`);

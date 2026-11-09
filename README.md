@@ -20,6 +20,7 @@ To filter streams per install, open the deployment's `/configure` page (`$PRODUC
 
 | Route | Behavior |
 | --- | --- |
+| `GET /` | Small info JSON (`addon`, `manifest`, `configure`, `health`) with `no-store`; used by uptime pingers. |
 | `GET /manifest.json` | Static Stremio manifest, `Cache-Control: public, max-age=300`. |
 | `GET /:config/manifest.json` | Same manifest under a filter segment. |
 | `GET /stream/:type/:id.json` | Movie (`tt...`) or series (`tt...:S:E`) streams, always HTTP 200, `no-store`. |
@@ -30,6 +31,8 @@ To filter streams per install, open the deployment's `/configure` page (`$PRODUC
 | `GET /:config/configure` | Same page, prefilled from the segment (Stremio's gear icon). |
 | `GET /health` | Snapshot status (`status`, `sha`, `fetchedAt`, `scraperCount`, `lastError`, `refreshing`) plus in-memory per-provider stats (`providers`: calls, responded/empty, errors/timeouts/skips, success rate, p50/p95 latency). Counters reset on cold start. |
 | `GET /api/cron/refresh` | Forces a snapshot refresh; requires `Authorization: Bearer $CRON_SECRET`. |
+
+Every GET route also answers `HEAD` with the same status and headers and no body, so uptime pingers such as UptimeRobot can monitor any endpoint.
 
 Invalid ids, unresolvable TMDB ids, missing snapshots, and provider failures all return `{"streams":[]}` (or `{"subtitles":[]}` on subtitle routes) with HTTP 200.
 

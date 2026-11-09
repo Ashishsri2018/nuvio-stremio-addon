@@ -4,6 +4,7 @@
   "buildCommand": "npm run bake && npm run build",
   "outputDirectory": "public",
   "rewrites": [
+    { "source": "/", "destination": "/api/index" },
     { "source": "/manifest.json", "destination": "/api/index" },
     { "source": "/configure", "destination": "/api/index" },
     { "source": "/stream/:path*", "destination": "/api/index" },

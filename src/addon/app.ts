@@ -147,6 +147,17 @@ export function createApp(deps: AppDeps): express.Express {
     next();
   });
 
+  const serveRoot: RequestHandler = (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.status(200).json({
+      addon: "community.nuvio.stremio",
+      manifest: "/manifest.json",
+      configure: "/configure",
+      health: "/health",
+    });
+  };
+  app.get("/", serveRoot);
+
   const serveManifest: RequestHandler = (req, res) => {
     res.setHeader("Cache-Control", "public, max-age=300");
     res.json(getManifest());
