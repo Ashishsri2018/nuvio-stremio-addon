@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This addon exposes the `eclipsia/nuvio-plugin` provider bundle as a standard Stremio stream addon. Nuvio providers are CommonJS modules that export `getStreams(tmdbId, mediaType, season, episode)` and normally run on-device inside the Nuvio app. This service downloads them from Codeberg, evaluates them in-process, and serves Stremio's `/stream` protocol keyed by IMDb ids.
+This addon exposes the `eclipsia/nuvio-plugin` provider bundle as a standard Stremio stream addon. Nuvio providers are CommonJS modules that export `getStreams(tmdbId, mediaType, season, episode)` and normally run on-device inside the Nuvio app. This service downloads them from Codeberg, evaluates them in-process, and serves Stremio's `/stream` protocol keyed by IMDb (`tt…`) or TMDB (`tmdb:…`) ids. IMDb ids are mapped to TMDB via Cinemeta; TMDB ids are used directly.
 
 Two policies shape the design:
 
@@ -23,7 +23,7 @@ src/
     manifest.ts          static Stremio manifest
     configure.ts         static /configure HTML page
     userConfig.ts        base64url filter segment: schema, encode/parse, filterStreams
-    parseId.ts           tt... / tt...:S:E parser
+    parseId.ts           tt... / tmdb:... content id parser (movie and :S:E series forms)
     mapStreams.ts        Nuvio -> Stremio mapping, quality/size inference, sort, dedupe
   cinemeta/client.ts     IMDb -> TMDB via Cinemeta, TMDB /find fallback
   source/codeberg.ts     head resolution, raw downloads, retries, size/path limits
@@ -52,10 +52,11 @@ parseStreamId(type, id) -- invalid --> 200 {"streams":[]}
         v
 StreamPipeline.handle(request, signal)
         |
-        +--> in-memory cache hit (key type:imdbId:season:episode) --> return
+        +--> in-memory cache hit (key type:contentId:season:episode) --> return
         +--> identical in-flight request --> join its promise
         |
-        +--> CinemetaClient.resolveTmdbId(type, imdbId)
+        +--> tmdb: ids use the embedded TMDB id directly
+        +--> tt ids: CinemetaClient.resolveTmdbId(type, imdbId)
         |      Cinemeta /meta/{movie|series}/{imdbId}.json -> meta.moviedb_id
         |      fallback: TMDB /find/{imdbId}?external_source=imdb_id (if TMDB_API_KEY)
         |
@@ -87,9 +88,9 @@ filterStreams(streams, parseUserConfig(req.params.config))
 
 `GET /subtitles/:type/:id.json` (and the `/:config` variant) runs the same `pipeline.handle()` request — so it hits the same cache or joins the same fan-out — then `StreamPipeline.collectSubtitles()` flattens `stream.subtitles` across the returned streams and dedupes by URL. The response is `{"subtitles":[{"id","url","lang"}]}` with HTTP 200 on every path, including invalid ids and failures. User filters are not applied. The route captures `/:type/:path*` because Stremio appends an optional `/<extras>.json` segment (`videoHash`, `filename`, …) that `parseStreamId` ignores. Nuvio Mobile never reads inline `streams[].subtitles` and only queries addons advertising a `subtitles` resource, so this route is what makes provider tracks visible there.
 
-The pipeline cache stores unfiltered streams keyed by `type:imdbId:season:episode`, so every config segment shares the same upstream work; filtering is applied per request. Identical requests that arrive while one is still running join that promise instead of starting a second fan-out. Production uses a 3-minute cache TTL; aborted requests bypass the cache.
+The pipeline cache stores unfiltered streams keyed by `type:contentId:season:episode`, where `contentId` is `tt…` or `tmdb:…`, so every config segment shares the same upstream work; filtering is applied per request. Identical requests that arrive while one is still running join that promise instead of starting a second fan-out. Production uses a 3-minute cache TTL; aborted requests bypass the cache.
 
-`StreamRequest.type` is Stremio's `"movie"`/`"series"`; the provider-facing media type is `"movie"`/`"tv"`. Series-only ids without a season (`tt...:S`) are accepted and forward `episode === undefined`.
+`StreamRequest.type` is Stremio's `"movie"`/`"series"`; the provider-facing media type is `"movie"`/`"tv"`. Series-only ids without a season (`tt...:S` or `tmdb:...:S`) are accepted and forward `episode === undefined`. `StreamRequest` is a union: IMDb requests carry `imdbId`, TMDB requests carry `tmdbId`; `contentIdOf()` produces the canonical id for cache keys and logs.
 
 If the request socket closes, `app.ts` aborts the `AbortController` and the pipeline stops early. Aborted requests are not cached.
 
@@ -149,7 +150,7 @@ Provider execution is in-process and unsandboxed. The trust boundary is the pinn
 ## Observability
 
 - `nuvio_snapshot_activated` records `source` as `disk`, `bundled`, or `network`, plus `sha`, scraper count, and `fetchedAt`.
-- Every stream request emits exactly one `nuvio_streams_resolved` summary from `StreamPipeline.handle()` (miss, cache hit, and inflight join alike): `type`, `imdbId`, `season`/`episode`, `tmdbId`, `outcome` (`ok`, `tmdb_missing`, `snapshot_unavailable`, `aborted`, `error`), `cache` (`hit`/`miss`), `shared`, `providers`, `responded`, `streams`, `zeroHits`, `failed`, `skipped`, `slowest` (`{provider, latencyMs}`), and `durationMs`. Only ids, counts, and latencies are logged; stream URLs, headers, settings, and error messages are not added.
+- Every stream request emits exactly one `nuvio_streams_resolved` summary from `StreamPipeline.handle()` (miss, cache hit, and inflight join alike): `type`, `contentId`, `imdbId` (null for TMDB requests), `season`/`episode`, `tmdbId`, `outcome` (`ok`, `tmdb_missing`, `snapshot_unavailable`, `aborted`, `error`), `cache` (`hit`/`miss`), `shared`, `providers`, `responded`, `streams`, `zeroHits`, `failed`, `skipped`, `slowest` (`{provider, latencyMs}`), and `durationMs`. Only ids, counts, and latencies are logged; stream URLs, headers, settings, and error messages are not added.
 - `zeroHits` lists every eligible provider that produced no raw streams, including empty responses, failures, timeouts, and deadline skips; `failed` and `skipped` identify the reason. `slowest` includes timeout attempts.
 - `src/nuvio/metrics.ts` keeps in-memory, per-function-instance counters per provider (`calls`, `ok`, `responded`, `empty`, `errors`, `timeouts`, `skipped`, `successRate`) plus a ring buffer of the last 100 latencies; `/health.providers` reports nearest-rank p50/p95 for providers with at least one call. Counters reset on cold start, like the stream cache.
 

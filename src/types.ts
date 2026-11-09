@@ -37,12 +37,21 @@ export interface StremioStream {
   };
 }
 
-export interface StreamRequest {
+export interface ImdbStreamRequest {
   type: "movie" | "series";
   imdbId: string;
   season?: number;
   episode?: number;
 }
+
+export interface TmdbStreamRequest {
+  type: "movie" | "series";
+  tmdbId: number;
+  season?: number;
+  episode?: number;
+}
+
+export type StreamRequest = ImdbStreamRequest | TmdbStreamRequest;
 
 export interface NuvioScraperEntry {
   id: string;

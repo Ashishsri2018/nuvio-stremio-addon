@@ -11,7 +11,7 @@ export function getManifest(): StremioManifest {
     description: "Streams from Nuvio/Eclipsia providers",
     types: ["movie", "series"],
     resources: ["stream", "subtitles"],
-    idPrefixes: ["tt"],
+    idPrefixes: ["tt", "tmdb:"],
     catalogs: [],
     behaviorHints: { configurable: true },
   };

@@ -15,7 +15,7 @@ import type { StreamPipeline } from "../nuvio/pipeline.js";
 import type { SnapshotManager } from "../nuvio/snapshot.js";
 import { renderConfigurePage } from "./configure.js";
 import { getManifest } from "./manifest.js";
-import { parseStreamId } from "./parseId.js";
+import { parseStreamId, requestLogFields } from "./parseId.js";
 import { filterStreams, parseUserConfig } from "./userConfig.js";
 
 export interface AppDeps {
@@ -56,7 +56,7 @@ async function runStreamRequest(
   } catch (error) {
     deps.logger.error("stream_request_failed", {
       type: request.type,
-      imdbId: request.imdbId,
+      ...requestLogFields(request),
       season: request.season,
       episode: request.episode,
       reason: error instanceof Error ? error.name : "unknown",
@@ -108,7 +108,7 @@ async function runSubtitleRequest(
   } catch (error) {
     deps.logger.error("subtitle_request_failed", {
       type: request.type,
-      imdbId: request.imdbId,
+      ...requestLogFields(request),
       season: request.season,
       episode: request.episode,
       reason: error instanceof Error ? error.name : "unknown",

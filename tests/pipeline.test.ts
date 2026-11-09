@@ -114,6 +114,52 @@ describe("StreamPipeline", () => {
     expect(calls).toEqual([[1399, "tv", 2, 3]]);
   });
 
+  it("uses TMDB ids directly without calling Cinemeta", async () => {
+    const calls: Array<[number, string, number | undefined, number | undefined]> = [];
+    const scraper = makeScraper("alpha", ["movie", "tv"], async (...args) => {
+      calls.push(args);
+      return [];
+    });
+
+    const config = await testConfig();
+    const { manager } = fakeSnapshots(snapshotWith([scraper]));
+    const { client, calls: cinemetaCalls } = fakeCinemeta(() => 1);
+    const { logger, events } = recordingLogger();
+    const pipeline = new StreamPipeline({
+      config,
+      logger,
+      snapshots: manager,
+      cinemeta: client,
+    });
+
+    await pipeline.handle({ type: "movie", tmdbId: 550 });
+    await pipeline.handle({ type: "series", tmdbId: 1399, season: 2, episode: 3 });
+
+    expect(cinemetaCalls).toEqual([]);
+    expect(calls).toEqual([
+      [550, "movie", undefined, undefined],
+      [1399, "tv", 2, 3],
+    ]);
+
+    const summaries = events.filter(
+      (entry) => entry.event === "nuvio_streams_resolved",
+    );
+    expect(summaries[0]).toMatchObject({
+      contentId: "tmdb:550",
+      imdbId: null,
+      tmdbId: 550,
+      outcome: "ok",
+    });
+    expect(summaries[1]).toMatchObject({
+      contentId: "tmdb:1399",
+      imdbId: null,
+      tmdbId: 1399,
+      season: 2,
+      episode: 3,
+      outcome: "ok",
+    });
+  });
+
   it("returns partial results when a scraper fails", async () => {
     const good = makeScraper("good", ["movie"], async () => [
       { url: "https://cdn.test/good.mp4", quality: "720p" },

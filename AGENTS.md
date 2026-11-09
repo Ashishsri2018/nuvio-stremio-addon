@@ -4,7 +4,7 @@ Guidance for AI agents and contributors working in this repository.
 
 ## Project
 
-Serverless Stremio stream addon (Node >= 22, ESM TypeScript, Express) that downloads the `eclipsia/nuvio-plugin` scraper bundle from Codeberg and executes its providers in-process. Stremio requests are keyed by IMDb ids; Cinemeta maps them to TMDB ids for `getStreams(tmdbId, "movie"|"tv", season, episode)`.
+Serverless Stremio stream addon (Node >= 22, ESM TypeScript, Express) that downloads the `eclipsia/nuvio-plugin` scraper bundle from Codeberg and executes its providers in-process. Stremio requests are keyed by IMDb (`tt…`) or TMDB (`tmdb:…`) ids; Cinemeta maps IMDb ids to TMDB ids, while TMDB ids pass through, for `getStreams(tmdbId, "movie"|"tv", season, episode)`.
 
 Read these first:
 
@@ -43,6 +43,7 @@ npm start          # node dist/src/local.js after build
 ## Gotchas
 
 - Provider media types differ: Stremio uses `"series"`, Nuvio expects `"tv"`.
+- `StreamRequest` is a union: `tt…` ids carry `imdbId` and go through Cinemeta, `tmdb:…` ids carry `tmdbId` and skip it. Use `contentIdOf()`/`requestLogFields()` from `src/addon/parseId.ts` for cache keys and logs instead of reading `request.imdbId` directly.
 - The user config segment is the first path segment and applies only to response filtering in `src/addon/app.ts`, after the shared, unfiltered pipeline cache. Keep the manifest on both `/manifest.json` and `/:config/manifest.json`, and the configure page on `/configure` and `/:config/configure` (Stremio's gear opens the prefixed one).
 - Subtitle languages arrive as display names (`English`, `Brazilian`) from providers but as ISO codes in user config. `LANGUAGE_ALIASES` in `src/addon/userConfig.ts` maps names to codes; keep it updated when new provider language labels appear. `SCRAPER_CONCURRENCY` is capped at 60 in `src/config.ts`.
 - Providers read `TMDB_API_KEY` and `SCRAPER_SETTINGS` at module top level. Settings are applied in two passes (`onSettings` defaults first, env overrides win); re-evaluate the module if the merged settings change.
@@ -68,6 +69,7 @@ Active production: private URL, intentionally not recorded here. Retrieve it fro
   curl -i "$PRODUCTION_URL/configure"
   curl "$PRODUCTION_URL/stream/movie/tt0133093.json"
   curl "$PRODUCTION_URL/stream/series/tt0944947:1:1.json"
+  curl "$PRODUCTION_URL/stream/movie/tmdb:550.json"
   curl "$PRODUCTION_URL/health"
   ```
 - Deployment-specific `*.vercel.app` URLs are behind Vercel Authentication (302). Use the production alias for public checks or `vercel curl` for protected URLs.

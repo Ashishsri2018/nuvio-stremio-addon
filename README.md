@@ -1,6 +1,6 @@
 # Nuvio Stremio Addon
 
-Stremio stream addon that downloads the [eclipsia/nuvio-plugin](https://codeberg.org/eclipsia/nuvio-plugin) scraper bundle and runs its providers server-side. Providers are invoked as `getStreams(tmdbId, "movie"|"tv", season, episode)`; Stremio's IMDb ids are mapped to TMDB through Cinemeta.
+Stremio stream addon that downloads the [eclipsia/nuvio-plugin](https://codeberg.org/eclipsia/nuvio-plugin) scraper bundle and runs its providers server-side. Providers are invoked as `getStreams(tmdbId, "movie"|"tv", season, episode)`; IMDb ids are mapped to TMDB through Cinemeta, and `tmdb:` ids pass through directly.
 
 The production install URL is private and intentionally not published. This addon is installed through AIOStreams; the URL is stored only in the Vercel project and the AIOStreams configuration. If you have access to the Vercel project, retrieve it with `vercel project inspect --json` and never commit it.
 
@@ -9,8 +9,8 @@ To filter streams per install, open the deployment's `/configure` page (`$PRODUC
 ## How it works
 
 - `/manifest.json` is static and never calls upstream.
-- `/stream/movie/tt...json` and `/stream/series/tt...:S:E.json` resolve the TMDB id, fan out to enabled providers, and always return HTTP 200 (empty `streams` on any failure).
-- `/subtitles/movie/tt...json` and `/subtitles/series/tt...:S:E.json` aggregate the provider subtitle tracks found for that title (deduped by URL) for clients such as Nuvio Mobile that only query addons declaring a `subtitles` resource. They reuse the stream pipeline and its 3-minute cache.
+- `/stream/movie/tt...json` and `/stream/series/tt...:S:E.json` resolve the TMDB id, fan out to enabled providers, and always return HTTP 200 (empty `streams` on any failure). `/stream/movie/tmdb:550.json` and `/stream/series/tmdb:1399:S:E.json` skip Cinemeta and use the embedded TMDB id directly.
+- `/subtitles/movie/tt...json` and `/subtitles/series/tt...:S:E.json` (also `tmdb:...` forms) aggregate the provider subtitle tracks found for that title (deduped by URL) for clients such as Nuvio Mobile that only query addons declaring a `subtitles` resource. They reuse the stream pipeline and its 3-minute cache.
 - Stream URLs are the provider's direct URLs. When `PROXY_ENABLED=true`, provider headers are attached as `behaviorHints.proxyHeaders.request`; the addon never proxies or rewrites media URLs.
 - A provider snapshot is downloaded from Codeberg at most once per `NUVIO_UPDATE_INTERVAL_HOURS` (default 24), cached under `NUVIO_CACHE_DIR` (default `/tmp/nuvio-addon` on Vercel), and swapped atomically. A stale snapshot is served if upstream is unavailable.
 - Production ships a baked snapshot (`snapshot/`, built by `npm run bake`) so cold instances load providers from disk instead of waiting on Codeberg.
@@ -23,7 +23,7 @@ To filter streams per install, open the deployment's `/configure` page (`$PRODUC
 | `GET /` | Small info JSON (`addon`, `manifest`, `configure`, `health`) with `no-store`; used by uptime pingers. |
 | `GET /manifest.json` | Static Stremio manifest, `Cache-Control: public, max-age=300`. |
 | `GET /:config/manifest.json` | Same manifest under a filter segment. |
-| `GET /stream/:type/:id.json` | Movie (`tt...`) or series (`tt...:S:E`) streams, always HTTP 200, `no-store`. |
+| `GET /stream/:type/:id.json` | Movie (`tt...` or `tmdb:...`) or series (`tt...:S:E` or `tmdb:...:S:E`) streams, always HTTP 200, `no-store`. |
 | `GET /:config/stream/:type/:id.json` | Same stream route, filtered by the URL segment. |
 | `GET /subtitles/:type/:id.json` | Provider subtitle tracks as `{id, url, lang}`, deduped by URL, always HTTP 200. An optional Stremio extras segment (`/<extras>.json`) is accepted and ignored. |
 | `GET /:config/subtitles/:type/:id.json` | Same subtitle route under a filter segment. |
@@ -101,6 +101,7 @@ curl localhost:7000/manifest.json
 curl localhost:7000/configure
 curl 'localhost:7000/stream/movie/tt0133093.json'
 curl 'localhost:7000/stream/series/tt0944947:1:1.json'
+curl 'localhost:7000/stream/movie/tmdb:550.json'
 curl localhost:7000/health
 ```
 
@@ -108,7 +109,7 @@ curl localhost:7000/health
 
 ## Tests and CI
 
-- `npm test` runs Vitest with 85 tests across 9 files. Tests use local fixture HTTP servers only, so they need no network.
+- `npm test` runs Vitest with 96 tests across 10 files. Tests use local fixture HTTP servers only, so they need no network.
 - `npm run typecheck` covers `src/` and `api/`; `tests/` are checked by Vitest only.
 - GitHub Actions (`.github/workflows/ci.yml`) runs `npm ci`, `npm run typecheck`, `npm test`, and `npm run build` on every push to `main` and every PR. **CI is the source of truth** for compile and test failures.
 

@@ -119,7 +119,7 @@ describe("addon routes", () => {
     expect(manifest.id).toBe("community.nuvio.stremio");
     expect(manifest.types).toEqual(["movie", "series"]);
     expect(manifest.resources).toEqual(["stream", "subtitles"]);
-    expect(manifest.idPrefixes).toEqual(["tt"]);
+    expect(manifest.idPrefixes).toEqual(["tt", "tmdb:"]);
     expect(manifest.behaviorHints).toEqual({ configurable: true });
   });
 
@@ -179,6 +179,24 @@ describe("addon routes", () => {
     });
   });
 
+  it("maps TMDB movie and series ids", async () => {
+    const { running, calls } = await createServer();
+    const movie = await fetch(`${running.url}/stream/movie/tmdb:550.json`);
+    expect(movie.status).toBe(200);
+    expect(await movie.json()).toEqual({
+      streams: [expect.objectContaining({ url: "https://cdn.test/movie.mp4" })],
+    });
+
+    const series = await fetch(
+      `${running.url}/stream/series/tmdb:1399:1:2.json`,
+    );
+    expect(series.status).toBe(200);
+    expect(calls).toEqual([
+      { type: "movie", tmdbId: 550 },
+      { type: "series", tmdbId: 1399, season: 1, episode: 2 },
+    ]);
+  });
+
   it("maps series stream requests and accepts ids without .json", async () => {
     const { running, calls } = await createServer();
     const response = await fetch(
@@ -201,6 +219,10 @@ describe("addon routes", () => {
       "/stream/series/tt0944947.json",
       "/stream/foo/tt0944947.json",
       "/stream/movie/tt.json",
+      "/stream/movie/tmdb:abc.json",
+      "/stream/movie/tmdb:0.json",
+      "/stream/movie/tmdb:550:1:2.json",
+      "/stream/series/tmdb:1399.json",
     ];
     for (const path of paths) {
       const response = await fetch(`${running.url}${path}`);

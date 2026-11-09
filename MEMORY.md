@@ -15,6 +15,8 @@ Working notes for continuity. Update this file after deployment, configuration, 
 
 ## Current state
 
+- 2026-11-09: Added direct TMDB id support (`tmdb:<id>[:season:episode]`) alongside IMDb ids. `manifest.idPrefixes` is now `["tt","tmdb:"]`; `parseId.ts` returns a `StreamRequest` union (`imdbId` or `tmdbId`) and rejects malformed ids; the pipeline skips Cinemeta for TMDB ids, keys the cache by `contentId`, and logs `contentId` with `imdbId: null`. Covered by `tests/parseId.test.ts` plus route and pipeline cases. `mal:`/`kitsu:` ids remain unsupported.
+
 - 2026-11-09: Added `GET /` (info JSON with relative `manifest`/`configure`/`health` links, `no-store`) and a `/` rewrite in `vercel.json`. The bare deployment URL previously returned Vercel `NOT_FOUND` for every method, so uptime pingers pointed at the root had nothing to hit. Express answers `HEAD` for every GET route without a body; covered by a new `routes.test.ts` case for GET/HEAD `/`.
 
 - 2026-11-08: Added the `subtitles` resource (`/subtitles/:type/:id.json` and `/:config/...`). `StreamPipeline.collectSubtitles()` reuses `handle()` so it shares the stream cache/fan-out, flattens inline `stream.subtitles`, and dedupes by URL. Reason: Nuvio Mobile ignores inline stream subtitles and only queries addons declaring a `subtitles` resource. Route uses `/:path*` because Express 4 / path-to-regexp 0.1 has no optional-param groups for the Stremio extras segment. `vercel.json` gained `/subtitles/:path*` and `/:config/subtitles/:path*` rewrites.

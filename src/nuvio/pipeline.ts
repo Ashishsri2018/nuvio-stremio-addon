@@ -12,6 +12,7 @@ import {
   mapScraperStreams,
   sortStreams,
 } from "../addon/mapStreams.js";
+import { contentIdOf, requestLogFields } from "../addon/parseId.js";
 import { TimeoutError, withTimeout } from "../util/concurrency.js";
 import { scraperSupports } from "./loader.js";
 import {
@@ -239,7 +240,7 @@ export class StreamPipeline {
       return [];
     }
 
-    const cacheKey = `${request.type}:${request.imdbId}:${request.season ?? ""}:${request.episode ?? ""}`;
+    const cacheKey = `${request.type}:${contentIdOf(request)}:${request.season ?? ""}:${request.episode ?? ""}`;
     const cached = this.cache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       this.logSummary(request, startedAt, "hit", false, {
@@ -292,11 +293,14 @@ export class StreamPipeline {
     cacheKey: string,
   ): Promise<ProduceResult> {
     try {
-      const tmdbId = await this.cinemeta.resolveTmdbId(request.type, request.imdbId);
+      const tmdbId =
+        "tmdbId" in request
+          ? request.tmdbId
+          : await this.cinemeta.resolveTmdbId(request.type, request.imdbId);
       if (tmdbId === null) {
         this.logger.info("nuvio_tmdb_id_missing", {
           type: request.type,
-          imdbId: request.imdbId,
+          ...requestLogFields(request),
         });
         return { streams: [], outcome: "tmdb_missing", meta: null };
       }
@@ -305,7 +309,7 @@ export class StreamPipeline {
       if (!snapshot) {
         this.logger.warn("nuvio_snapshot_unavailable", {
           type: request.type,
-          imdbId: request.imdbId,
+          ...requestLogFields(request),
         });
         return { streams: [], outcome: "snapshot_unavailable", meta: null };
       }
@@ -372,7 +376,7 @@ export class StreamPipeline {
     } catch (error) {
       this.logger.error("nuvio_stream_request_failed", {
         type: request.type,
-        imdbId: request.imdbId,
+        ...requestLogFields(request),
         error: errorMessage(error),
       });
       return { streams: [], outcome: "error", meta: null };
@@ -389,7 +393,7 @@ export class StreamPipeline {
     const meta = result.meta;
     this.logger.info("nuvio_streams_resolved", {
       type: request.type,
-      imdbId: request.imdbId,
+      ...requestLogFields(request),
       season: request.season,
       episode: request.episode,
       tmdbId: meta?.tmdbId ?? null,
@@ -410,7 +414,7 @@ export class StreamPipeline {
   private logRequestFailure(request: StreamRequest, error: unknown): void {
     this.logger.error("nuvio_stream_request_failed", {
       type: request.type,
-      imdbId: request.imdbId,
+      ...requestLogFields(request),
       error: errorMessage(error),
     });
   }
