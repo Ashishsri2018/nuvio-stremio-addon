@@ -15,6 +15,8 @@ Working notes for continuity. Update this file after deployment, configuration, 
 
 ## Current state
 
+- 2026-11-10: Upstream Codeberg changes verified (`eclipsia/nuvio-plugin` @ `a63b59bf7d`). The upstream bundle bumped to v12.3.0, dropped `noctyx` and `vitrix`, migrated `phraxis` to DooFlix, and updated `maelith` server endpoints. The scheduled `refresh-snapshot.yml` workflow ran on 2026-11-09 at 12:44 UTC and triggered a redeploy hook; production `/health` confirmed SHA `a63b59bf7ddd1fe9f6d8d53f76ed587bbebe0a51a56aca6facde5c01ed353096` active with 46 scrapers (`bdix-*` disabled). Local snapshot re-baked and verified with all 96 unit tests passing.
+
 - 2026-11-09: Added direct TMDB id support (`tmdb:<id>[:season:episode]`) alongside IMDb ids. `manifest.idPrefixes` is now `["tt","tmdb:"]`; `parseId.ts` returns a `StreamRequest` union (`imdbId` or `tmdbId`) and rejects malformed ids; the pipeline skips Cinemeta for TMDB ids, keys the cache by `contentId`, and logs `contentId` with `imdbId: null`. Covered by `tests/parseId.test.ts` plus route and pipeline cases. `mal:`/`kitsu:` ids remain unsupported.
 
 - 2026-11-09: Added `GET /` (info JSON with relative `manifest`/`configure`/`health` links, `no-store`) and a `/` rewrite in `vercel.json`. The bare deployment URL previously returned Vercel `NOT_FOUND` for every method, so uptime pingers pointed at the root had nothing to hit. Express answers `HEAD` for every GET route without a body; covered by a new `routes.test.ts` case for GET/HEAD `/`.
