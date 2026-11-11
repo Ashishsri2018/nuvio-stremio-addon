@@ -61,7 +61,7 @@ Working notes for continuity. Update this file after deployment, configuration, 
 
 Thirteen non-secret variables are configured in Production via `scripts/apply-vercel-env.sh` (including `DISABLED_SCRAPERS` and `NUVIO_BUNDLED_DIR=snapshot`).
 
-`LOG_LEVEL=info`, `NUVIO_SOURCE=eclipsia/nuvio-plugin`, `NUVIO_BRANCH=main`, `NUVIO_UPDATE_INTERVAL_HOURS=24`, `NUVIO_CONCURRENCY=16`, `SCRAPER_CONCURRENCY=60`, `SCRAPER_TIMEOUT_MS=12000`, `GLOBAL_DEADLINE_MS=30000`, `HTTP_TIMEOUT_MS=15000`, `STREAM_CACHE_TTL_MS=180000`, `STREAM_PARTIAL_CACHE_TTL_MS=30000`, `PROXY_ENABLED=true`, `DISABLED_SCRAPERS=bdix-cf,bdix-df,bdix-fh`.
+`LOG_LEVEL=info`, `NUVIO_SOURCE=eclipsia/nuvio-plugin`, `NUVIO_BRANCH=main`, `NUVIO_UPDATE_INTERVAL_HOURS=24`, `NUVIO_CONCURRENCY=16`, `SCRAPER_CONCURRENCY=60`, `SCRAPER_TIMEOUT_MS=12000`, `GLOBAL_DEADLINE_MS=30000`, `HTTP_TIMEOUT_MS=15000`, `STREAM_CACHE_TTL_MS=180000`, `STREAM_PARTIAL_CACHE_TTL_MS=30000`, `PROXY_ENABLED=true`, `DISABLED_SCRAPERS=bdix-cf,bdix-df,bdix-fh,brellor`.
 
 The bundled snapshot is active in Production: runtime logs show `nuvio_snapshot_activated` with `source:"bundled"`, 48 scrapers, and no Codeberg download on cold stream requests.
 
@@ -101,6 +101,7 @@ Secrets:
 - **Always HTTP 200 on `/stream`.** Invalid ids, missing TMDB ids, Codeberg outages, and provider failures return `{"streams":[]}`.
 - **Language matching normalizes names.** Provider subtitle languages are display names; `userConfig` maps common names to ISO codes (and compares base tags) so `en` matches `English` and `pt` matches `Brazilian Portuguese`.
 - **BDIX providers disabled (2026-11-05).** `bdix-cf`, `bdix-df`, and `bdix-fh` target BDIX ISP-internal addresses (`15.1.1.50`, `172.16.50.x`) and `flixhub.net`; they time out from Vercel and normal networks, so they are in `DISABLED_SCRAPERS`.
+- **Internet Archive provider disabled (2026-11-11).** `brellor` ("Internet Archive • Classic/Vintage") is the only provider whose sole source is `archive.org`, so it is added to `DISABLED_SCRAPERS`. Other providers with "archive" in their code target unrelated hosts (e.g. `archive.toonworld4all.me`).
 - **Observability is per-request logs plus per-instance counters (2026-11-05).** `nuvio_streams_resolved` is logged once per request from `StreamPipeline.handle()` with `cache`/`shared`/`outcome`, `zeroHits`, `failed`, `skipped`, `slowest`, and `durationMs`; cache hits reuse stored metadata. `nuvio_snapshot_activated` carries `source` (`disk`/`bundled`/`network`). `/health.providers` reports counters and nearest-rank p50/p95 from a 100-sample ring buffer; stats reset on cold start. Test count is now 85.
 - **Bundled snapshot is the cold-start baseline (2026-11-06).** `npm run bake` writes `snapshot/` at build time and Vercel ships it via `includeFiles`; runtime prefers it over any network download, serves stale copies immediately, and refreshes in the background. Codeberg remains the source for refreshes and the fallback path is inverted (bundled first, network on failure) to remove cold-start latency and outage sensitivity. A scheduled GitHub Actions job rebakes daily and redeploys through a deploy hook.
 - **Stream cache TTL is 3 minutes (2026-11-06).** Production `STREAM_CACHE_TTL_MS=180000` (was `60000`) to cut repeat fan-outs; `GLOBAL_DEADLINE_MS` stays at 30 s because Vercel caps functions at 60 s.
