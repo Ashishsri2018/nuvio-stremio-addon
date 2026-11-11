@@ -50,7 +50,7 @@ npm start          # node dist/src/local.js after build
 - Some providers accept `supportedTypes: ["series"]`; `scraperSupports` treats `tv` and `series` as equivalent for Stremio series.
 - Each provider call times out at `min(SCRAPER_TIMEOUT_MS, remaining GLOBAL_DEADLINE_MS)`; slow providers are skipped without blocking the rest.
 - `NUVIO_BUNDLED_DIR` is a build-time snapshot (`npm run bake` writes `snapshot/`, gitignored, shipped via `includeFiles`). Cold instances serve it immediately; a stale bundled snapshot is served while Codeberg refreshes in the background. `.github/workflows/refresh-snapshot.yml` rebakes daily and triggers the `VERCEL_DEPLOY_HOOK` secret.
-- The stream cache is in-memory per function instance (`STREAM_CACHE_TTL_MS`, max 500 entries) and is skipped for aborted requests.
+- The stream cache is in-memory per function instance (max 500 entries) and is skipped for aborted requests. Complete results use `STREAM_CACHE_TTL_MS`; deadline/per-provider-timeout results use `STREAM_PARTIAL_CACHE_TTL_MS`; empty results are never cached.
 - `nuvio_streams_resolved` is emitted once per stream request by `StreamPipeline.handle()`; any new return path must log exactly one summary (ids/counts/latencies only, never URLs or headers). `/health.providers` counters are also per instance and reset on cold start.
 - Vercel injects `x-vercel-id`/`x-invocation-id` into outbound fetches; providers may surface them in returned headers, which appear in `proxyHeaders`. This is expected.
 - Vercel's writable path is `/tmp` only; `NUVIO_CACHE_DIR` defaults there. Cold instances re-download the snapshot.

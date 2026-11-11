@@ -368,8 +368,22 @@ export class StreamPipeline {
         slowest: slowestProvider(stats),
       };
 
-      if (this.config.streamCacheTtlMs > 0 && !signal?.aborted) {
-        this.store(cacheKey, streams, meta);
+      const partial =
+        meta.skipped.length > 0 ||
+        stats.some((stat) => !stat.ok && stat.error === "timeout");
+      const ttl = partial
+        ? Math.min(
+            this.config.streamPartialCacheTtlMs,
+            this.config.streamCacheTtlMs,
+          )
+        : this.config.streamCacheTtlMs;
+      if (
+        streams.length > 0 &&
+        ttl > 0 &&
+        this.config.streamCacheTtlMs > 0 &&
+        !signal?.aborted
+      ) {
+        this.store(cacheKey, streams, meta, ttl);
       }
 
       return { streams, outcome: "ok", meta };
@@ -423,13 +437,14 @@ export class StreamPipeline {
     key: string,
     streams: StremioStream[],
     meta: StreamsMeta,
+    ttlMs: number,
   ): void {
     if (this.cache.size >= MAX_CACHE_ENTRIES) {
       const oldest = this.cache.keys().next().value;
       if (oldest !== undefined) this.cache.delete(oldest);
     }
     this.cache.set(key, {
-      expiresAt: Date.now() + this.config.streamCacheTtlMs,
+      expiresAt: Date.now() + ttlMs,
       streams,
       meta,
     });

@@ -137,6 +137,7 @@ export interface AppConfig {
   globalDeadlineMs: number;
   httpTimeoutMs: number;
   streamCacheTtlMs: number;
+  streamPartialCacheTtlMs: number;
   tmdbApiKey: string | null;
   scraperSettings: Record<string, Record<string, unknown>>;
   disabledScrapers: string[];

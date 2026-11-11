@@ -300,6 +300,66 @@ describe("StreamPipeline", () => {
     expect(calls).toBe(1);
   });
 
+  it("does not cache empty results", async () => {
+    let calls = 0;
+    const scraper = makeScraper("empty", ["movie"], async () => {
+      calls += 1;
+      return [];
+    });
+
+    const config = await testConfig({ STREAM_CACHE_TTL_MS: "60000" });
+    const { manager } = fakeSnapshots(snapshotWith([scraper]));
+    const { client } = fakeCinemeta(() => 603);
+    const pipeline = new StreamPipeline({
+      config,
+      logger: silentLogger(),
+      snapshots: manager,
+      cinemeta: client,
+    });
+
+    const request = { type: "movie" as const, imdbId: "tt0133093" };
+    await expect(pipeline.handle(request)).resolves.toEqual([]);
+    await expect(pipeline.handle(request)).resolves.toEqual([]);
+    expect(calls).toBe(2);
+  });
+
+  it("caches deadline-truncated results at the partial ttl", async () => {
+    let calls = 0;
+    const fast = makeScraper("fast", ["movie"], async () => {
+      calls += 1;
+      return [{ url: "https://cdn.test/partial.mp4", quality: "1080p" }];
+    });
+    const hanging = makeScraper(
+      "hang",
+      ["movie"],
+      () => new Promise(() => undefined),
+    );
+
+    const base = await testConfig({
+      STREAM_CACHE_TTL_MS: "60000",
+      STREAM_PARTIAL_CACHE_TTL_MS: "80",
+    });
+    const config = { ...base, globalDeadlineMs: 150, scraperTimeoutMs: 5000 };
+    const { manager } = fakeSnapshots(snapshotWith([fast, hanging]));
+    const { client } = fakeCinemeta(() => 603);
+    const pipeline = new StreamPipeline({
+      config,
+      logger: silentLogger(),
+      snapshots: manager,
+      cinemeta: client,
+    });
+
+    const request = { type: "movie" as const, imdbId: "tt0133093" };
+    const first = await pipeline.handle(request);
+    expect(first).toHaveLength(1);
+    await expect(pipeline.handle(request)).resolves.toEqual(first);
+    expect(calls).toBe(1);
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    await expect(pipeline.handle(request)).resolves.toHaveLength(1);
+    expect(calls).toBe(2);
+  });
+
   it("dedupes concurrent identical requests", async () => {
     let calls = 0;
     let release: () => void = () => undefined;

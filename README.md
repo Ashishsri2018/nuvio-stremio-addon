@@ -69,6 +69,7 @@ Non-secret defaults live in `deploy/vercel.env` and are applied with `scripts/ap
 | `GLOBAL_DEADLINE_MS` | `20000` | partial results at deadline (production uses `30000`) |
 | `HTTP_TIMEOUT_MS` | `15000` | internal and provider fetch timeout |
 | `STREAM_CACHE_TTL_MS` | `60000` | in-memory; 0 disables (production uses `180000`) |
+| `STREAM_PARTIAL_CACHE_TTL_MS` | `30000` | deadline/timeout-truncated non-empty results; empty results are never cached (`0` disables) |
 | `TMDB_API_KEY` | empty | optional; providers embed a fallback key |
 | `SCRAPER_SETTINGS_JSON` | empty | secret: `{"scraperId":{"key":value}}` |
 | `DISABLED_SCRAPERS` | empty | comma-separated scraper ids |

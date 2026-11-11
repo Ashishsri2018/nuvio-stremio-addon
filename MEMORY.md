@@ -21,6 +21,11 @@ Working notes for continuity. Update this file after deployment, configuration, 
   - `/configure` hint clarifies that the language list filters only the subtitles resource.
   - Added user-config and route tests proving `subtitleLangs` filters tracks while streams keep every track.
 
+- 2026-11-11: Aligned stream cache semantics with SA7 and Vega.
+  - Empty results are never cached; every retry re-runs the scraper fan-out.
+  - Deadline-truncated and per-provider-timeout results are cached at `STREAM_PARTIAL_CACHE_TTL_MS` (default `30000`), while complete results keep `STREAM_CACHE_TTL_MS`.
+  - `deploy/vercel.env` now sets `STREAM_PARTIAL_CACHE_TTL_MS=30000`; pipeline tests cover empty-skip and partial TTL behavior.
+
 - 2026-11-11: Web page detection and `externalUrl` mapping.
   - Added `src/addon/urlClassifier.ts` to detect web pages, HTML embeds (`/embed/`, `.html`, etc.), Telegram bot links (`t.me`), archives (`.zip`, `.rar`), and known embed domains (`moviesapi.to`, `screenscape.me`, `rubystm.com`, etc.).
   - `src/addon/mapStreams.ts`: Maps detected web pages to Stremio's `externalUrl` (omitting `url`, `proxyHeaders`, and `subtitles`), preventing player decode errors in Stremio. Direct video streams (`.mp4`, `.mkv`, `.m3u8`, `.mpd`, Google UserContent, Cloudflare R2) continue using `url`.
@@ -51,7 +56,7 @@ Working notes for continuity. Update this file after deployment, configuration, 
 
 Thirteen non-secret variables are configured in Production via `scripts/apply-vercel-env.sh` (including `DISABLED_SCRAPERS` and `NUVIO_BUNDLED_DIR=snapshot`).
 
-`LOG_LEVEL=info`, `NUVIO_SOURCE=eclipsia/nuvio-plugin`, `NUVIO_BRANCH=main`, `NUVIO_UPDATE_INTERVAL_HOURS=24`, `NUVIO_CONCURRENCY=16`, `SCRAPER_CONCURRENCY=60`, `SCRAPER_TIMEOUT_MS=12000`, `GLOBAL_DEADLINE_MS=30000`, `HTTP_TIMEOUT_MS=15000`, `STREAM_CACHE_TTL_MS=180000`, `PROXY_ENABLED=true`, `DISABLED_SCRAPERS=bdix-cf,bdix-df,bdix-fh`.
+`LOG_LEVEL=info`, `NUVIO_SOURCE=eclipsia/nuvio-plugin`, `NUVIO_BRANCH=main`, `NUVIO_UPDATE_INTERVAL_HOURS=24`, `NUVIO_CONCURRENCY=16`, `SCRAPER_CONCURRENCY=60`, `SCRAPER_TIMEOUT_MS=12000`, `GLOBAL_DEADLINE_MS=30000`, `HTTP_TIMEOUT_MS=15000`, `STREAM_CACHE_TTL_MS=180000`, `STREAM_PARTIAL_CACHE_TTL_MS=30000`, `PROXY_ENABLED=true`, `DISABLED_SCRAPERS=bdix-cf,bdix-df,bdix-fh`.
 
 The bundled snapshot is active in Production: runtime logs show `nuvio_snapshot_activated` with `source:"bundled"`, 48 scrapers, and no Codeberg download on cold stream requests.
 

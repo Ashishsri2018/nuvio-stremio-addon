@@ -75,7 +75,7 @@ StreamPipeline.handle(request, signal)
         |
         +--> mapScraperStreams per provider -> sortStreams -> cap 1000
         |
-        +--> store in stream cache (STREAM_CACHE_TTL_MS, max 500 entries)
+        +--> store non-empty streams (full TTL, or STREAM_PARTIAL_CACHE_TTL_MS when truncated)
         |
         v
 filterStreams(streams, parseUserConfig(req.params.config))
@@ -88,7 +88,7 @@ filterStreams(streams, parseUserConfig(req.params.config))
 
 `GET /subtitles/:type/:id.json` (and the `/:config` variant) runs the same `pipeline.handle()` request — so it hits the same cache or joins the same fan-out — then `StreamPipeline.collectSubtitles()` flattens `stream.subtitles` across the returned streams and dedupes by URL. The route applies only the configured subtitle language preference via `filterSubtitles()` (codes or provider names); resolution and size filters are not applied to tracks. The response is `{"subtitles":[{"id","url","lang"}]}` with HTTP 200 on every path, including invalid ids and failures. The route captures `/:type/:path*` because Stremio appends an optional `/<extras>.json` segment (`videoHash`, `filename`, …) that `parseStreamId` ignores. Nuvio Mobile never reads inline `streams[].subtitles` and only queries addons advertising a `subtitles` resource, so this route is what makes provider tracks visible there.
 
-The pipeline cache stores unfiltered streams keyed by `type:contentId:season:episode`, where `contentId` is `tt…` or `tmdb:…`, so every config segment shares the same upstream work; filtering is applied per request. Identical requests that arrive while one is still running join that promise instead of starting a second fan-out. Production uses a 3-minute cache TTL; aborted requests bypass the cache.
+The pipeline cache stores unfiltered streams keyed by `type:contentId:season:episode`, where `contentId` is `tt…` or `tmdb:…`, so every config segment shares the same upstream work; filtering is applied per request. Identical requests that arrive while one is still running join that promise instead of starting a second fan-out. Production uses a 3-minute cache TTL for complete results and `STREAM_PARTIAL_CACHE_TTL_MS` (30 s) for deadline or per-provider timeout truncation. Empty results and aborted requests are never cached.
 
 `StreamRequest.type` is Stremio's `"movie"`/`"series"`; the provider-facing media type is `"movie"`/`"tv"`. Series-only ids without a season (`tt...:S` or `tmdb:...:S`) are accepted and forward `episode === undefined`. `StreamRequest` is a union: IMDb requests carry `imdbId`, TMDB requests carry `tmdbId`; `contentIdOf()` produces the canonical id for cache keys and logs.
 
@@ -179,7 +179,7 @@ Provider execution is in-process and unsandboxed. The trust boundary is the pinn
 
 ## Configuration
 
-All keys are parsed in `src/config.ts`; invalid values abort startup with `ConfigError`. See the table in [README.md](README.md). Notable bounds: `NUVIO_UPDATE_INTERVAL_HOURS` 1-168, `NUVIO_CONCURRENCY` 1-32, `SCRAPER_CONCURRENCY` 1-60, `GLOBAL_DEADLINE_MS` 2000-300000, `STREAM_CACHE_TTL_MS` 0-3600000.
+All keys are parsed in `src/config.ts`; invalid values abort startup with `ConfigError`. See the table in [README.md](README.md). Notable bounds: `NUVIO_UPDATE_INTERVAL_HOURS` 1-168, `NUVIO_CONCURRENCY` 1-32, `SCRAPER_CONCURRENCY` 1-60, `GLOBAL_DEADLINE_MS` 2000-300000, `STREAM_CACHE_TTL_MS` 0-3600000, `STREAM_PARTIAL_CACHE_TTL_MS` 0-3600000.
 
 `SCRAPER_SETTINGS_JSON` is `{"<scraperId>": {"key": value}}` and may contain debrid credentials; treat it as a secret. `CRON_SECRET` is generated and stored in Vercel only.
 
