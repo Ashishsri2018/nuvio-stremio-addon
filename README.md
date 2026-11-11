@@ -29,7 +29,8 @@ To filter streams per install, open the deployment's `/configure` page (`$PRODUC
 | `GET /:config/subtitles/:type/:id.json` | Same subtitle route under a filter segment. |
 | `GET /configure` | HTML page that builds a filtered install URL. |
 | `GET /:config/configure` | Same page, prefilled from the segment (Stremio's gear icon). |
-| `GET /health` | Snapshot status (`status`, `sha`, `fetchedAt`, `scraperCount`, `lastError`, `refreshing`) plus in-memory per-provider stats (`providers`: calls, responded/empty, errors/timeouts/skips, success rate, p50/p95 latency). Counters reset on cold start. |
+| `GET /health` | Canonical telemetry: `ok`, `addon`, `status`, `startedAt`, `uptimeSec`, `checkedAt`, `snapshot`, normalized `providers` (`total`, `circuits`, `stats[]`), `cache` (`stream`, `metadata`), and `metrics`. Counters reset on cold start. |
+| `GET /stats` | Identical canonical telemetry response to `/health`. |
 | `GET /api/cron/refresh` | Forces a snapshot refresh; requires `Authorization: Bearer $CRON_SECRET`. |
 
 Every GET route also answers `HEAD` with the same status and headers and no body, so uptime pingers such as UptimeRobot can monitor any endpoint.

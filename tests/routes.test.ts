@@ -349,15 +349,73 @@ describe("addon routes", () => {
     expect(calls).toEqual([]);
   });
 
-  it("reports health", async () => {
+  it("serves the canonical health and stats reports", async () => {
     const { running } = await createServer();
-    const response = await fetch(`${running.url}/health`);
-    expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(await response.json()).toEqual({ ...HEALTH, providers: {} });
+    const healthResponse = await fetch(`${running.url}/health`);
+    const statsResponse = await fetch(`${running.url}/stats`);
+
+    for (const response of [healthResponse, statsResponse]) {
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+    }
+
+    const health = (await healthResponse.json()) as Record<string, unknown>;
+    const stats = (await statsResponse.json()) as Record<string, unknown>;
+    expect(Object.keys(health)).toEqual([
+      "ok",
+      "addon",
+      "status",
+      "startedAt",
+      "uptimeSec",
+      "checkedAt",
+      "snapshot",
+      "providers",
+      "cache",
+      "metrics",
+    ]);
+    expect(Object.keys(health.snapshot as object)).toEqual([
+      "sha",
+      "fetchedAt",
+      "ageMs",
+      "refreshing",
+      "lastError",
+    ]);
+    expect(Object.keys(health.providers as object)).toEqual([
+      "total",
+      "circuits",
+      "stats",
+    ]);
+    expect(Object.keys(health.cache as object)).toEqual(["stream", "metadata"]);
+
+    expect(health).toMatchObject({
+      ok: true,
+      addon: "Nuvio Streams",
+      status: "ok",
+      snapshot: {
+        sha: HEALTH.sha,
+        fetchedAt: HEALTH.fetchedAt,
+        refreshing: false,
+        lastError: null,
+      },
+      providers: {
+        total: HEALTH.scraperCount,
+        circuits: { open: 0, halfOpen: 0 },
+        stats: [],
+      },
+    });
+    const stable = (body: Record<string, unknown>) => {
+      const snapshot = body.snapshot as Record<string, unknown>;
+      return {
+        ...body,
+        startedAt: null,
+        checkedAt: null,
+        snapshot: { ...snapshot, ageMs: null },
+      };
+    };
+    expect(stable(stats)).toEqual(stable(health));
   });
 
-  it("includes provider stats in health", async () => {
+  it("includes normalized provider stats in health and stats", async () => {
     const stats = {
       alpha: {
         calls: 2,
@@ -373,26 +431,45 @@ describe("addon routes", () => {
       },
     };
     const { running } = await createServer(undefined, () => stats);
-    const response = await fetch(`${running.url}/health`);
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ...HEALTH, providers: stats });
+    for (const path of ["/health", "/stats"]) {
+      const response = await fetch(`${running.url}${path}`);
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        providers: { stats: unknown[] };
+      };
+      expect(body.providers.stats).toEqual([
+        {
+          id: "alpha",
+          state: "closed",
+          calls: 2,
+          ok: 2,
+          empty: 1,
+          errors: 0,
+          timeouts: 0,
+          skipped: 0,
+          successRate: 1,
+          avgMs: 10,
+          lastMs: null,
+          maxMs: null,
+          lastError: null,
+          lastSuccessAt: null,
+        },
+      ]);
+    }
   });
 
-  it("falls back when provider stats fail", async () => {
+  it("keeps health usable when provider stats fail", async () => {
     const { running } = await createServer(undefined, () => {
       throw new Error("stats down");
     });
     const response = await fetch(`${running.url}/health`);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      status: "error",
-      sha: null,
-      fetchedAt: null,
-      scraperCount: 0,
-      lastError: "health check failed",
-      refreshing: false,
-      providers: {},
-    });
+    const body = (await response.json()) as {
+      status: string;
+      providers: { stats: unknown[] };
+    };
+    expect(body.status).toBe("ok");
+    expect(body.providers.stats).toEqual([]);
   });
 
   it("handles CORS preflight and unknown routes", async () => {

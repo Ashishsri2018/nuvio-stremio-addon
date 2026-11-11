@@ -300,6 +300,53 @@ describe("StreamPipeline", () => {
     expect(calls).toBe(1);
   });
 
+  it("reports canonical request and stream-cache metrics", async () => {
+    const scraper = makeScraper("alpha", ["movie"], async () => [
+      { url: "https://cdn.test/metrics.mp4", quality: "1080p" },
+    ]);
+
+    const config = await testConfig({
+      STREAM_CACHE_TTL_MS: "60000",
+      STREAM_PARTIAL_CACHE_TTL_MS: "30000",
+    });
+    const { manager } = fakeSnapshots(snapshotWith([scraper]));
+    const { client } = fakeCinemeta(() => 603);
+    const pipeline = new StreamPipeline({
+      config,
+      logger: silentLogger(),
+      snapshots: manager,
+      cinemeta: client,
+    });
+
+    const request = { type: "movie" as const, imdbId: "tt0133093" };
+    await pipeline.handle(request);
+    await pipeline.handle(request);
+
+    expect(pipeline.getMetrics()).toEqual({
+      requests: 2,
+      cacheHits: 1,
+      cacheMisses: 1,
+      emptyResults: 0,
+      deadlineHits: 0,
+      settleHits: 0,
+      providerFailures: 0,
+    });
+    expect(pipeline.getCacheStats()).toEqual({
+      enabled: true,
+      hits: 1,
+      misses: 1,
+      coalesced: 0,
+      sets: 1,
+      evictions: 0,
+      expired: 0,
+      size: 1,
+      maxEntries: 500,
+      ttlMs: 60000,
+      partialTtlMs: 30000,
+    });
+    expect(pipeline.getMetadataCacheStats()).toBeNull();
+  });
+
   it("does not cache empty results", async () => {
     let calls = 0;
     const scraper = makeScraper("empty", ["movie"], async () => {

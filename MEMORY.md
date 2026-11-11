@@ -15,6 +15,11 @@ Working notes for continuity. Update this file after deployment, configuration, 
 
 ## Current state
 
+- 2026-11-11: Unified `/health` and `/stats` into one canonical telemetry shape.
+  - Both routes now return `ok`, `addon`, `status`, timestamps, `snapshot`, normalized `providers`, `cache.stream`, `cache.metadata`, and `metrics`.
+  - Added pipeline cache/request counters, normalized provider stats, and Cinemeta metadata-cache stats; added the `/stats` rewrite in `vercel.json`.
+  - Route tests assert identical health/stats structure and normalized provider values.
+
 - 2026-11-11: Decoupled the subtitle language preference from stream filtering.
   - `filterStreams()` now applies only resolution and size rules; it leaves streams and their inline `subtitles` untouched.
   - `GET /subtitles/...` applies `filterSubtitles(tracks, parseUserConfig(...).subtitleLangs)`, so configured languages filter the subtitles resource without hiding media links.

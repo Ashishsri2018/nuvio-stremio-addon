@@ -1,4 +1,5 @@
 import type { AppConfig, CinemetaMeta, LoggerLike } from "../types.js";
+import type { MetadataCacheStats } from "../telemetry.js";
 import { nativeFetch } from "../util/nativeFetch.js";
 
 const SUCCESS_TTL_MS = 6 * 60 * 60 * 1000;
@@ -30,6 +31,13 @@ export class CinemetaClient {
   private readonly logger: LoggerLike;
   private readonly fetchImpl: typeof fetch;
   private readonly cache = new Map<string, CacheEntry>();
+  private readonly cacheStats = {
+    hits: 0,
+    misses: 0,
+    sets: 0,
+    evictions: 0,
+    expired: 0,
+  };
 
   constructor(options: CinemetaClientOptions) {
     this.config = options.config;
@@ -43,7 +51,15 @@ export class CinemetaClient {
   ): Promise<number | null> {
     const key = `${type}:${imdbId}`;
     const cached = this.cache.get(key);
-    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    if (cached) {
+      if (cached.expiresAt > Date.now()) {
+        this.cacheStats.hits += 1;
+        return cached.value;
+      }
+      this.cache.delete(key);
+      this.cacheStats.expired += 1;
+    }
+    this.cacheStats.misses += 1;
 
     let value = await this.fromCinemeta(type, imdbId);
     if (value !== null) {
@@ -124,11 +140,23 @@ export class CinemetaClient {
     }
   }
 
+  getCacheStats(): MetadataCacheStats {
+    return {
+      ...this.cacheStats,
+      size: this.cache.size,
+      maxEntries: MAX_CACHE_ENTRIES,
+    };
+  }
+
   private store(key: string, value: number | null, ttlMs: number): void {
     if (this.cache.size >= MAX_CACHE_ENTRIES) {
       const oldest = this.cache.keys().next().value;
-      if (oldest !== undefined) this.cache.delete(oldest);
+      if (oldest !== undefined) {
+        this.cache.delete(oldest);
+        this.cacheStats.evictions += 1;
+      }
     }
     this.cache.set(key, { expiresAt: Date.now() + ttlMs, value });
+    this.cacheStats.sets += 1;
   }
 }

@@ -14,6 +14,11 @@ import {
 } from "../addon/mapStreams.js";
 import { contentIdOf, requestLogFields } from "../addon/parseId.js";
 import { TimeoutError, withTimeout } from "../util/concurrency.js";
+import type {
+  MetadataCacheStats,
+  StreamCacheStats,
+  TelemetryMetrics,
+} from "../telemetry.js";
 import { scraperSupports } from "./loader.js";
 import {
   ProviderMetrics,
@@ -197,6 +202,21 @@ export class StreamPipeline {
   private readonly cache = new Map<string, CacheEntry>();
   private readonly inflight = new Map<string, Promise<ProduceResult>>();
   private readonly metrics = new ProviderMetrics();
+  private readonly requestMetrics = {
+    requests: 0,
+    emptyResults: 0,
+    deadlineHits: 0,
+    settleHits: 0,
+    providerFailures: 0,
+  };
+  private readonly cacheStats = {
+    hits: 0,
+    misses: 0,
+    coalesced: 0,
+    sets: 0,
+    evictions: 0,
+    expired: 0,
+  };
 
   constructor(options: StreamPipelineOptions) {
     this.config = options.config;
@@ -207,6 +227,33 @@ export class StreamPipeline {
 
   getProviderStats(): ProviderStatsReport {
     return this.metrics.report();
+  }
+
+  getMetrics(): TelemetryMetrics {
+    return {
+      requests: this.requestMetrics.requests,
+      cacheHits: this.cacheStats.hits,
+      cacheMisses: this.cacheStats.misses,
+      emptyResults: this.requestMetrics.emptyResults,
+      deadlineHits: this.requestMetrics.deadlineHits,
+      settleHits: this.requestMetrics.settleHits,
+      providerFailures: this.requestMetrics.providerFailures,
+    };
+  }
+
+  getCacheStats(): StreamCacheStats {
+    return {
+      enabled: this.config.streamCacheTtlMs > 0,
+      ...this.cacheStats,
+      size: this.cache.size,
+      maxEntries: MAX_CACHE_ENTRIES,
+      ttlMs: this.config.streamCacheTtlMs,
+      partialTtlMs: this.config.streamPartialCacheTtlMs,
+    };
+  }
+
+  getMetadataCacheStats(): MetadataCacheStats | null {
+    return this.cinemeta.getCacheStats?.() ?? null;
   }
 
   async collectSubtitles(
@@ -240,24 +287,34 @@ export class StreamPipeline {
       return [];
     }
 
+    this.requestMetrics.requests += 1;
     const cacheKey = `${request.type}:${contentIdOf(request)}:${request.season ?? ""}:${request.episode ?? ""}`;
     const cached = this.cache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      this.logSummary(request, startedAt, "hit", false, {
-        streams: cached.streams,
-        outcome: "ok",
-        meta: cached.meta,
-      });
-      return cached.streams;
+    if (cached) {
+      if (cached.expiresAt > Date.now()) {
+        this.cacheStats.hits += 1;
+        this.logSummary(request, startedAt, "hit", false, {
+          streams: cached.streams,
+          outcome: "ok",
+          meta: cached.meta,
+        });
+        return cached.streams;
+      }
+      this.cache.delete(cacheKey);
+      this.cacheStats.expired += 1;
     }
+    this.cacheStats.misses += 1;
 
     const existing = this.inflight.get(cacheKey);
+    if (existing) this.cacheStats.coalesced += 1;
     if (existing) {
       try {
         const result = await existing;
+        if (result.streams.length === 0) this.requestMetrics.emptyResults += 1;
         this.logSummary(request, startedAt, "miss", true, result);
         return result.streams;
       } catch (error) {
+        this.requestMetrics.emptyResults += 1;
         this.logRequestFailure(request, error);
         this.logSummary(request, startedAt, "miss", true, {
           streams: [],
@@ -272,9 +329,11 @@ export class StreamPipeline {
     this.inflight.set(cacheKey, task);
     try {
       const result = await task;
+      if (result.streams.length === 0) this.requestMetrics.emptyResults += 1;
       this.logSummary(request, startedAt, "miss", false, result);
       return result.streams;
     } catch (error) {
+      this.requestMetrics.emptyResults += 1;
       this.logRequestFailure(request, error);
       this.logSummary(request, startedAt, "miss", false, {
         streams: [],
@@ -357,6 +416,10 @@ export class StreamPipeline {
       const skipped = stats
         .filter((stat) => stat.error === "deadline")
         .map((stat) => stat.id);
+      this.requestMetrics.providerFailures += stats.filter(
+        (stat) => !stat.ok && stat.error !== "deadline",
+      ).length;
+      if (skipped.length > 0) this.requestMetrics.deadlineHits += 1;
       const meta: StreamsMeta = {
         tmdbId,
         providers: scrapers.length,
@@ -441,12 +504,16 @@ export class StreamPipeline {
   ): void {
     if (this.cache.size >= MAX_CACHE_ENTRIES) {
       const oldest = this.cache.keys().next().value;
-      if (oldest !== undefined) this.cache.delete(oldest);
+      if (oldest !== undefined) {
+        this.cache.delete(oldest);
+        this.cacheStats.evictions += 1;
+      }
     }
     this.cache.set(key, {
       expiresAt: Date.now() + ttlMs,
       streams,
       meta,
     });
+    this.cacheStats.sets += 1;
   }
 }

@@ -10,6 +10,7 @@
     { "source": "/stream/:path*", "destination": "/api/index" },
     { "source": "/subtitles/:path*", "destination": "/api/index" },
     { "source": "/health", "destination": "/api/index" },
+    { "source": "/stats", "destination": "/api/index" },
     { "source": "/:config/manifest.json", "destination": "/api/index" },
     { "source": "/:config/configure", "destination": "/api/index" },
     { "source": "/:config/stream/:path*", "destination": "/api/index" },
