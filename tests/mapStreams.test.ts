@@ -5,6 +5,7 @@ import {
   sortStreams,
   type MapScraperOptions,
 } from "../src/addon/mapStreams.js";
+import { isWebPage } from "../src/addon/urlClassifier.js";
 
 function options(overrides: Partial<MapScraperOptions> = {}): MapScraperOptions {
   return {
@@ -134,6 +135,89 @@ describe("mapScraperStreams", () => {
       "https://provider.test/hls/master.m3u8?token=abc",
     );
   });
+
+  it("maps web pages and embed URLs to externalUrl and omits url and proxy headers", () => {
+    const streams = mapScraperStreams(
+      [
+        {
+          title: "MultiMovies Embed",
+          url: "https://screenscape.me/embed?tmdb=550",
+          quality: "1080p",
+          headers: { Referer: "https://screenscape.me" },
+        },
+        {
+          title: "Movie Page",
+          url: "https://moviesapi.to/movie/550",
+          quality: "720p",
+        },
+        {
+          title: "Bot Link",
+          url: "https://t.me/streambot?start=123",
+        },
+      ],
+      options(),
+    );
+
+    expect(streams).toHaveLength(3);
+    expect(streams[0]?.externalUrl).toBe("https://screenscape.me/embed?tmdb=550");
+    expect(streams[0]?.url).toBeUndefined();
+    expect(streams[0]?.behaviorHints?.proxyHeaders).toBeUndefined();
+
+    expect(streams[1]?.externalUrl).toBe("https://moviesapi.to/movie/550");
+    expect(streams[1]?.url).toBeUndefined();
+
+    expect(streams[2]?.externalUrl).toBe("https://t.me/streambot?start=123");
+    expect(streams[2]?.url).toBeUndefined();
+  });
+
+  it("maps zip archives to externalUrl", () => {
+    const streams = mapScraperStreams(
+      [
+        {
+          title: "Show Episode Archive",
+          url: "https://cdn.test/episode.mkv.zip",
+        },
+      ],
+      options(),
+    );
+    expect(streams).toHaveLength(1);
+    expect(streams[0]?.externalUrl).toBe("https://cdn.test/episode.mkv.zip");
+    expect(streams[0]?.url).toBeUndefined();
+  });
+
+  it("drops rate-limit slowdown blocker URLs", () => {
+    const streams = mapScraperStreams(
+      [
+        {
+          url: "https://st.111477.xyz/slowdown",
+          title: "Slow Down",
+        },
+        {
+          url: "https://cdn.test/valid.mp4",
+          title: "Valid Stream",
+        },
+      ],
+      options(),
+    );
+    expect(streams).toHaveLength(1);
+    expect(streams[0]?.url).toBe("https://cdn.test/valid.mp4");
+  });
+
+  it("accepts provider-tagged externalUrl directly", () => {
+    const streams = mapScraperStreams(
+      [
+        {
+          title: "Provider Tagged Web Link",
+          externalUrl: "https://custom-host.test/watch/123",
+          quality: "1080p",
+        },
+      ],
+      options(),
+    );
+    expect(streams).toHaveLength(1);
+    expect(streams[0]?.externalUrl).toBe("https://custom-host.test/watch/123");
+    expect(streams[0]?.url).toBeUndefined();
+  });
 });
 
 describe("inferQuality", () => {
@@ -154,5 +238,51 @@ describe("sortStreams", () => {
       { name: "b", url: "https://cdn.test/b.mp4", title: "1080p" },
     ]);
     expect(streams.map((stream) => stream.name)).toEqual(["b", "a"]);
+  });
+
+  it("prioritizes direct video streams over external web pages regardless of quality", () => {
+    const streams = sortStreams([
+      { name: "embed-4k", externalUrl: "https://screenscape.me/embed?tmdb=1", title: "4K Embed" },
+      { name: "direct-1080p", url: "https://cdn.test/stream.m3u8", title: "1080p Direct" },
+      { name: "direct-720p", url: "https://cdn.test/stream.mp4", title: "720p Direct" },
+      { name: "embed-1080p", externalUrl: "https://moviesapi.to/movie/1", title: "1080p External" },
+    ]);
+
+    expect(streams.map((s) => s.name)).toEqual([
+      "direct-1080p",
+      "direct-720p",
+      "embed-4k",
+      "embed-1080p",
+    ]);
+  });
+
+  it("dedupes streams across url and externalUrl", () => {
+    const streams = sortStreams([
+      { name: "first", externalUrl: "https://moviesapi.to/movie/1" },
+      { name: "dup", externalUrl: "https://moviesapi.to/movie/1" },
+    ]);
+    expect(streams).toHaveLength(1);
+    expect(streams[0]?.name).toBe("first");
+  });
+});
+
+describe("isWebPage", () => {
+  it("identifies direct video streams", () => {
+    expect(isWebPage("https://cdn.test/video.mp4")).toBe(false);
+    expect(isWebPage("https://cdn.test/video.m3u8")).toBe(false);
+    expect(isWebPage("https://cdn.test/video.mpd")).toBe(false);
+    expect(isWebPage("https://cdn.test/video.mkv")).toBe(false);
+    expect(isWebPage("https://video-downloads.googleusercontent.com/xyz")).toBe(false);
+    expect(isWebPage("https://pub-123.r2.cloudflarestorage.com/media")).toBe(false);
+  });
+
+  it("identifies web pages and embed targets", () => {
+    expect(isWebPage("https://screenscape.me/embed?tmdb=1")).toBe(true);
+    expect(isWebPage("https://moviesapi.to/movie/1234")).toBe(true);
+    expect(isWebPage("https://site.test/video.html")).toBe(true);
+    expect(isWebPage("https://site.test/video.php?id=1")).toBe(true);
+    expect(isWebPage("https://site.test/download.zip")).toBe(true);
+    expect(isWebPage("https://t.me/stream_bot")).toBe(true);
+    expect(isWebPage("https://site.test/watch/123", { name: "Server [Embed]" })).toBe(true);
   });
 });

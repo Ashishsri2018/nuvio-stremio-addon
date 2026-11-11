@@ -137,14 +137,18 @@ Provider execution is in-process and unsandboxed. The trust boundary is the pinn
 
 `mapScraperStreams(rawStreams, { scraperId, scraperName, proxyEnabled })`:
 
-- Accepts only objects with a non-empty `http:`/`https:` `url`. Magnets, other schemes, malformed URLs, and placeholder hosts (`example.com`, `localhost`, `127.0.0.1`, etc.) are dropped.
+- Accepts only objects with a non-empty `http:`/`https:` `url` or `externalUrl`. Magnets, other schemes, malformed URLs, and placeholder hosts (`example.com`, `localhost`, `127.0.0.1`, etc.) are dropped.
+- Blocker URLs: rate-limit and anti-bot slowdown pages (e.g. `st.111477.xyz/slowdown`) matching `BLOCKER_URL_PATTERN` are dropped at ingestion.
+- Stream classification (`src/addon/urlClassifier.ts`):
+  - **Direct video streams**: `.mp4`, `.mkv`, `.m3u8`, `.mpd`, `.webm`, `.avi`, `.mov`, `.flv`, `.ts`, `.m4v`, or known direct CDNs (Google UserContent, Cloudflare R2, Pixeldrain file API) map to `url`.
+  - **Web pages and embeds**: URLs matching web extensions (`.html`, `.php`, `.zip`, `.rar`, etc.), embed paths (`/embed/`, `/e/`, `/v/`, `/iframe/`, `/player/`, `/watch/`), embed domains (`moviesapi.to`, `screenscape.me`, `rubystm.com`, etc.), Telegram bot links (`t.me`), or scraper-provided `externalUrl` map to Stremio `externalUrl`. For external web links, `url`, `proxyHeaders`, and `subtitles` are omitted so Stremio opens them in a browser without invoking the native player.
 - `name` is the upstream manifest display name.
 - `title` is `stream.title || stream.name || quality`; if the quality token is not already present, it appends ` • <quality>`.
-- `headers` are trimmed, validated (RFC 7230 token names, no CRLF), and filtered for hop-by-hop and `proxy-*` headers. They are attached only when `PROXY_ENABLED=true` and at least one survives, as `behaviorHints.proxyHeaders.request`.
+- `headers` are trimmed, validated (RFC 7230 token names, no CRLF), and filtered for hop-by-hop and `proxy-*` headers. They are attached only for direct streams when `PROXY_ENABLED=true` and at least one survives, as `behaviorHints.proxyHeaders.request`.
 - `bingeGroup` is `<scraperId>-<quality|auto>`.
 - `subtitles` accept `{url, language?, name?}` with http(s) URLs and become Stremio `{id, url, lang}` (language defaults to `en`). Providers usually emit full names (`English`, `Brazilian`); `userConfig` normalizes both those and configured ISO codes before matching (`LANGUAGE_ALIASES`).
-- At most 20 streams per provider; URLs are deduped.
-- `sortStreams` dedupes globally by URL, sorts by inferred quality (`8k`, `4k`, `uhd`, `qhd`, `fhd`, `###p`, bare resolutions), then prefers direct files (`.mp4`, `.mkv`, etc.) over unknown formats over HLS/DASH. Otherwise input order is preserved.
+- At most 20 streams per provider; URLs are deduped across `url` and `externalUrl`.
+- `sortStreams` dedupes globally by URL, prioritizes direct playable streams before external web links, sorts by inferred quality (`8k`, `4k`, `uhd`, `qhd`, `fhd`, `###p`, bare resolutions), then prefers direct files (`.mp4`, `.mkv`, etc.) over unknown formats over HLS/DASH. Otherwise input order is preserved.
 - The pipeline caps the combined result at 300 streams.
 
 ## Observability

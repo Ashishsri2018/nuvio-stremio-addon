@@ -1,4 +1,5 @@
 import type { NuvioRawStream, StremioStream, StremioSubtitle } from "../types.js";
+import { BLOCKER_URL_PATTERN, isWebPage } from "./urlClassifier.js";
 
 export const MAX_STREAMS = 300;
 const DEFAULT_PER_PROVIDER_LIMIT = 20;
@@ -126,31 +127,34 @@ export function mapScraperStreams(
     if (!isRecord(raw)) return;
     const stream = raw as NuvioRawStream;
 
-    const url = trimString(stream.url);
-    if (!url) return;
-    const parsed = parseHttpUrl(url);
+    const rawUrl = trimString(stream.url) || trimString(stream.externalUrl);
+    if (!rawUrl) return;
+    const parsed = parseHttpUrl(rawUrl);
     if (!parsed || isPlaceholderHost(parsed.hostname)) return;
-    if (seenUrls.has(url)) return;
-    seenUrls.add(url);
+    if (BLOCKER_URL_PATTERN.test(rawUrl)) return;
+    if (seenUrls.has(rawUrl)) return;
+    seenUrls.add(rawUrl);
 
     const quality = trimString(stream.quality);
     const title = buildTitle(trimString(stream.title) || trimString(stream.name), quality);
     const subtitles = normalizeSubtitles(stream.subtitles, options.scraperId, streamIndex);
     const requestHeaders = filterHeaders(stream.headers);
 
+    const webPage = isWebPage(rawUrl, stream);
+
     const behaviorHints: NonNullable<StremioStream["behaviorHints"]> = {
       bingeGroup: `${options.scraperId}-${quality || "auto"}`,
     };
-    if (options.proxyEnabled && Object.keys(requestHeaders).length > 0) {
+    if (!webPage && options.proxyEnabled && Object.keys(requestHeaders).length > 0) {
       behaviorHints.proxyHeaders = { request: requestHeaders };
     }
 
     mapped.push({
       name: scraperName,
       ...(title ? { title } : {}),
-      url,
+      ...(webPage ? { externalUrl: rawUrl } : { url: rawUrl }),
       behaviorHints,
-      ...(subtitles.length > 0 ? { subtitles } : {}),
+      ...(!webPage && subtitles.length > 0 ? { subtitles } : {}),
     });
   });
 
@@ -186,6 +190,7 @@ export function inferQuality(stream: StremioStream): number {
   }
   if (stream.behaviorHints?.bingeGroup) sources.push(stream.behaviorHints.bingeGroup);
   if (typeof stream.url === "string") sources.push(stream.url);
+  if (typeof stream.externalUrl === "string") sources.push(stream.externalUrl);
 
   let best = 0;
   for (const source of sources) {
@@ -219,7 +224,8 @@ export function inferFileSizeBytes(stream: StremioStream): number {
   return Math.round(best);
 }
 
-function formatRank(url: string): number {
+function formatRank(url: string | undefined): number {
+  if (!url) return 1;
   let pathname: string;
   try {
     pathname = new URL(url).pathname.toLowerCase();
@@ -237,13 +243,19 @@ export function sortStreams(streams: StremioStream[]): StremioStream[] {
   const unique: Array<{ stream: StremioStream; index: number }> = [];
 
   streams.forEach((stream, index) => {
-    if (!stream || typeof stream.url !== "string" || !stream.url) return;
-    if (seen.has(stream.url)) return;
-    seen.add(stream.url);
+    if (!stream) return;
+    const targetUrl = stream.url || stream.externalUrl;
+    if (typeof targetUrl !== "string" || !targetUrl) return;
+    if (seen.has(targetUrl)) return;
+    seen.add(targetUrl);
     unique.push({ stream, index });
   });
 
   unique.sort((a, b) => {
+    const aIsExt = a.stream.externalUrl ? 1 : 0;
+    const bIsExt = b.stream.externalUrl ? 1 : 0;
+    if (aIsExt !== bIsExt) return aIsExt - bIsExt;
+
     const qualityDiff = inferQuality(b.stream) - inferQuality(a.stream);
     if (qualityDiff !== 0) return qualityDiff;
     const formatDiff = formatRank(a.stream.url) - formatRank(b.stream.url);

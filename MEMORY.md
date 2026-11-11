@@ -15,6 +15,13 @@ Working notes for continuity. Update this file after deployment, configuration, 
 
 ## Current state
 
+- 2026-11-11: Web page detection and `externalUrl` mapping.
+  - Added `src/addon/urlClassifier.ts` to detect web pages, HTML embeds (`/embed/`, `.html`, etc.), Telegram bot links (`t.me`), archives (`.zip`, `.rar`), and known embed domains (`moviesapi.to`, `screenscape.me`, `rubystm.com`, etc.).
+  - `src/addon/mapStreams.ts`: Maps detected web pages to Stremio's `externalUrl` (omitting `url`, `proxyHeaders`, and `subtitles`), preventing player decode errors in Stremio. Direct video streams (`.mp4`, `.mkv`, `.m3u8`, `.mpd`, Google UserContent, Cloudflare R2) continue using `url`.
+  - Rate-limit slowdown blocker pages (`/slowdown`) matching `BLOCKER_URL_PATTERN` are dropped at ingestion.
+  - `sortStreams` prioritizes direct playable video streams ahead of external web links, deduping across both `url` and `externalUrl`.
+  - Added unit test cases in `tests/mapStreams.test.ts` covering direct video detection, web/embed mapping, archive handling, blocker dropping, and stream sorting precedence. All 104 unit tests pass, `npm run typecheck` and `npm run build` pass cleanly.
+
 - 2026-11-10: Upstream Codeberg changes verified (`eclipsia/nuvio-plugin` @ `a63b59bf7d`). The upstream bundle bumped to v12.3.0, dropped `noctyx` and `vitrix`, migrated `phraxis` to DooFlix, and updated `maelith` server endpoints. The scheduled `refresh-snapshot.yml` workflow ran on 2026-11-09 at 12:44 UTC and triggered a redeploy hook; production `/health` confirmed SHA `a63b59bf7ddd1fe9f6d8d53f76ed587bbebe0a51a56aca6facde5c01ed353096` active with 46 scrapers (`bdix-*` disabled). Local snapshot re-baked and verified with all 96 unit tests passing.
 
 - 2026-11-09: Added direct TMDB id support (`tmdb:<id>[:season:episode]`) alongside IMDb ids. `manifest.idPrefixes` is now `["tt","tmdb:"]`; `parseId.ts` returns a `StreamRequest` union (`imdbId` or `tmdbId`) and rejects malformed ids; the pipeline skips Cinemeta for TMDB ids, keys the cache by `contentId`, and logs `contentId` with `imdbId: null`. Covered by `tests/parseId.test.ts` plus route and pipeline cases. `mal:`/`kitsu:` ids remain unsupported.

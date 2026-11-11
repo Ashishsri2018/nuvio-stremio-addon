@@ -29,11 +29,14 @@ export interface StremioSubtitle {
 export interface StremioStream {
   name: string;
   title?: string;
-  url: string;
+  url?: string;
+  externalUrl?: string;
   subtitles?: StremioSubtitle[];
   behaviorHints?: {
     bingeGroup?: string;
     proxyHeaders?: { request: Record<string, string> };
+    videoSize?: number;
+    notWebReady?: boolean;
   };
 }
 
@@ -78,10 +81,12 @@ export interface NuvioRawStream {
   name?: unknown;
   title?: unknown;
   url?: unknown;
+  externalUrl?: unknown;
   quality?: unknown;
   headers?: unknown;
   subtitles?: unknown;
   type?: unknown;
+  server?: unknown;
 }
 
 export interface LoadedScraper {

@@ -2,6 +2,9 @@
 
 Planned improvements not yet implemented. Newest work first.
 
+## Completed
+- [x] Web page detection and `externalUrl` mapping: classify stream URLs, map web embeds and archives to Stremio `externalUrl`, drop `/slowdown` blockers, and sort direct streams first.
+
 ## 3. Per-provider health tracking and circuit breaking
 
 Today only `DISABLED_SCRAPERS` (manual, env-wide) removes a provider. A bad provider still costs latency on every request until someone notices.
