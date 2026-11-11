@@ -15,6 +15,12 @@ Working notes for continuity. Update this file after deployment, configuration, 
 
 ## Current state
 
+- 2026-11-11: Decoupled the subtitle language preference from stream filtering.
+  - `filterStreams()` now applies only resolution and size rules; it leaves streams and their inline `subtitles` untouched.
+  - `GET /subtitles/...` applies `filterSubtitles(tracks, parseUserConfig(...).subtitleLangs)`, so configured languages filter the subtitles resource without hiding media links.
+  - `/configure` hint clarifies that the language list filters only the subtitles resource.
+  - Added user-config and route tests proving `subtitleLangs` filters tracks while streams keep every track.
+
 - 2026-11-11: Web page detection and `externalUrl` mapping.
   - Added `src/addon/urlClassifier.ts` to detect web pages, HTML embeds (`/embed/`, `.html`, etc.), Telegram bot links (`t.me`), archives (`.zip`, `.rar`), and known embed domains (`moviesapi.to`, `screenscape.me`, `rubystm.com`, etc.).
   - `src/addon/mapStreams.ts`: Maps detected web pages to Stremio's `externalUrl` (omitting `url`, `proxyHeaders`, and `subtitles`), preventing player decode errors in Stremio. Direct video streams (`.mp4`, `.mkv`, `.m3u8`, `.mpd`, Google UserContent, Cloudflare R2) continue using `url`.

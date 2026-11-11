@@ -47,7 +47,7 @@ Invalid ids, unresolvable TMDB ids, missing snapshots, and provider failures all
 | Include unknown resolution | On | Keeps streams whose quality cannot be inferred. |
 | Maximum file size | Any | Drops streams whose title-inferred size exceeds the cap. |
 | Include unknown size | On | Keeps streams with no size in the title. |
-| Subtitle languages | Any | Keeps only matching subtitle tracks; streams without subtitles are unchanged. Codes (`en`, `pt-BR`) also match provider-style names (`English`, `Brazilian`). |
+| Subtitle languages | Any | Filters the `/subtitles` resource to matching tracks. Video streams and inline stream subtitles are never dropped. Codes (`en`, `pt-BR`) also match provider-style names (`English`, `Brazilian`). |
 
 Server-wide env settings (`SCRAPER_SETTINGS_JSON`, `DISABLED_SCRAPERS`, `PROXY_ENABLED`, timeouts) still apply to every request. Per-user filters only trim the response.
 

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { inferFileSizeBytes, inferQuality } from "./mapStreams.js";
-import type { StremioStream } from "../types.js";
+import type { StremioStream, StremioSubtitle } from "../types.js";
 
 const USER_CONFIG_VERSION = 1;
 const MAX_SUBTITLE_LANGS = 20;
@@ -189,20 +189,15 @@ function languageMatches(trackLang: string, wanted: readonly string[]): boolean 
   });
 }
 
-function filterSubtitles(
-  stream: StremioStream,
+export function filterSubtitles(
+  subtitles: readonly StremioSubtitle[] | undefined,
   langs: readonly string[],
-): StremioStream {
-  const subtitles = stream.subtitles;
-  if (!Array.isArray(subtitles) || subtitles.length === 0) return stream;
-
-  const kept = subtitles.filter((track) => languageMatches(track.lang, langs));
-  if (kept.length === subtitles.length) return stream;
-  if (kept.length === 0) {
-    const { subtitles: _dropped, ...rest } = stream;
-    return rest;
-  }
-  return { ...stream, subtitles: kept };
+): StremioSubtitle[] {
+  const wanted = normalizeSubtitleLangs(langs);
+  if (wanted.length === 0) return subtitles ? [...subtitles] : [];
+  return (subtitles ?? []).filter((track) =>
+    languageMatches(track.lang, wanted),
+  );
 }
 
 export function filterStreams(
@@ -212,12 +207,10 @@ export function filterStreams(
   const { maxRes, minRes, includeUnknown } = config;
   const maxSizeMB = config.maxSizeMB ?? null;
   const includeUnknownSize = config.includeUnknownSize ?? true;
-  const subtitleLangs = normalizeSubtitleLangs(config.subtitleLangs);
   const filterQuality = maxRes !== null || minRes !== null || !includeUnknown;
   const filterSize = maxSizeMB !== null;
-  const filterSubs = subtitleLangs.length > 0;
 
-  if (!filterQuality && !filterSize && !filterSubs) return streams;
+  if (!filterQuality && !filterSize) return streams;
 
   let result = filterQuality
     ? streams.filter((stream) => {
@@ -238,6 +231,5 @@ export function filterStreams(
     });
   }
 
-  if (!filterSubs) return result;
-  return result.map((stream) => filterSubtitles(stream, subtitleLangs));
+  return result;
 }

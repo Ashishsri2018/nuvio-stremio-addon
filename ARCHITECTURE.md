@@ -79,14 +79,14 @@ StreamPipeline.handle(request, signal)
         |
         v
 filterStreams(streams, parseUserConfig(req.params.config))
-        |      resolution bounds, unknown-quality toggle, size cap,
-        |      subtitle language trimming (codes or provider names);
+        |      resolution bounds, unknown-quality toggle, size cap;
+        |      subtitle preference does not touch streams;
         |      invalid segment -> defaults
         v
 200 {"streams":[...]} (always)
 ```
 
-`GET /subtitles/:type/:id.json` (and the `/:config` variant) runs the same `pipeline.handle()` request — so it hits the same cache or joins the same fan-out — then `StreamPipeline.collectSubtitles()` flattens `stream.subtitles` across the returned streams and dedupes by URL. The response is `{"subtitles":[{"id","url","lang"}]}` with HTTP 200 on every path, including invalid ids and failures. User filters are not applied. The route captures `/:type/:path*` because Stremio appends an optional `/<extras>.json` segment (`videoHash`, `filename`, …) that `parseStreamId` ignores. Nuvio Mobile never reads inline `streams[].subtitles` and only queries addons advertising a `subtitles` resource, so this route is what makes provider tracks visible there.
+`GET /subtitles/:type/:id.json` (and the `/:config` variant) runs the same `pipeline.handle()` request — so it hits the same cache or joins the same fan-out — then `StreamPipeline.collectSubtitles()` flattens `stream.subtitles` across the returned streams and dedupes by URL. The route applies only the configured subtitle language preference via `filterSubtitles()` (codes or provider names); resolution and size filters are not applied to tracks. The response is `{"subtitles":[{"id","url","lang"}]}` with HTTP 200 on every path, including invalid ids and failures. The route captures `/:type/:path*` because Stremio appends an optional `/<extras>.json` segment (`videoHash`, `filename`, …) that `parseStreamId` ignores. Nuvio Mobile never reads inline `streams[].subtitles` and only queries addons advertising a `subtitles` resource, so this route is what makes provider tracks visible there.
 
 The pipeline cache stores unfiltered streams keyed by `type:contentId:season:episode`, where `contentId` is `tt…` or `tmdb:…`, so every config segment shares the same upstream work; filtering is applied per request. Identical requests that arrive while one is still running join that promise instead of starting a second fan-out. Production uses a 3-minute cache TTL; aborted requests bypass the cache.
 
@@ -164,7 +164,7 @@ Provider execution is in-process and unsandboxed. The trust boundary is the pinn
 
 - CORS `*` for `GET, HEAD, OPTIONS`; `OPTIONS` returns 204. Express answers `HEAD` on every GET route without a body, so uptime pingers get the same status and headers.
 - `GET /` (info JSON: `addon`, `manifest`, `configure`, `health`; `no-store`), `GET /manifest.json` and `GET /:config/manifest.json` (5-minute cache), `GET /configure` and `GET /:config/configure` (HTML, 5-minute cache), `GET /stream/:type/:id.json`, `GET /:config/stream/:type/:id.json`, and the non-`.json` variants (`no-store`), `GET /subtitles/:type/:path*` and `GET /:config/subtitles/:type/:path*` (`no-store`; `path*` absorbs the optional Stremio extras segment), `GET /health` (`no-store`).
-- Stream requests catch all pipeline errors and return HTTP 200 with `{streams: []}`. Invalid ids short-circuit without touching the network. `HEAD` on a stream route returns 200 without running the pipeline. After the pipeline resolves, `filterStreams` applies the URL segment's user config; an invalid segment yields unfiltered defaults. Subtitle requests mirror this: HTTP 200 `{subtitles: []}` on invalid ids or errors, `HEAD` short-circuits, no user filtering.
+- Stream requests catch all pipeline errors and return HTTP 200 with `{streams: []}`. Invalid ids short-circuit without touching the network. `HEAD` on a stream route returns 200 without running the pipeline. After the pipeline resolves, `filterStreams` applies the URL segment's user config; an invalid segment yields unfiltered defaults. Subtitle requests mirror this: HTTP 200 `{subtitles: []}` on invalid ids or errors, `HEAD` short-circuits, and only the subtitle language preference is applied.
 - Unknown routes return JSON 404; a final error handler returns JSON 500 only if headers were not sent.
 
 ## Vercel deployment shape

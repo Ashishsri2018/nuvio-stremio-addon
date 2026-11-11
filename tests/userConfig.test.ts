@@ -3,6 +3,7 @@ import {
   DEFAULT_USER_CONFIG,
   encodeUserConfig,
   filterStreams,
+  filterSubtitles,
   parseUserConfig,
 } from "../src/addon/userConfig.js";
 import type { StremioStream } from "../src/types.js";
@@ -239,20 +240,9 @@ describe("subtitle language filtering", () => {
       { lang: "es", url: "https://subs.example/es.vtt" },
       { lang: "pt-BR", url: "https://subs.example/pt-br.vtt" },
     ]);
-    const filtered = filterStreams([input], {
-      maxRes: null,
-      minRes: null,
-      includeUnknown: true,
-      maxSizeMB: null,
-      includeUnknownSize: true,
-      subtitleLangs: ["en", "pt"],
-    });
+    const filtered = filterSubtitles(input.subtitles, ["en", "pt"]);
 
-    expect(filtered[0]?.subtitles?.map((track) => track.lang)).toEqual([
-      "en",
-      "en-US",
-      "pt-BR",
-    ]);
+    expect(filtered.map((track) => track.lang)).toEqual(["en", "en-US", "pt-BR"]);
     expect(input.subtitles).toHaveLength(4);
   });
 
@@ -263,60 +253,35 @@ describe("subtitle language filtering", () => {
       { lang: "Brazilian", url: "https://subs.example/pt-br.vtt" },
       { lang: "Spanish", url: "https://subs.example/es.vtt" },
     ]);
-    const filtered = filterStreams([input], {
-      maxRes: null,
-      minRes: null,
-      includeUnknown: true,
-      maxSizeMB: null,
-      includeUnknownSize: true,
-      subtitleLangs: ["en", "pt-br"],
-    });
+    const filtered = filterSubtitles(input.subtitles, ["en", "pt-br"]);
 
-    expect(filtered[0]?.subtitles?.map((track) => track.lang)).toEqual([
-      "English",
-      "Brazilian",
-    ]);
+    expect(filtered.map((track) => track.lang)).toEqual(["English", "Brazilian"]);
   });
 
   it("matches regional names against base language codes", () => {
     const input = subtitled([
       { lang: "Brazilian Portuguese", url: "https://subs.example/pt-br.vtt" },
     ]);
-    const filtered = filterStreams([input], {
-      maxRes: null,
-      minRes: null,
-      includeUnknown: true,
-      maxSizeMB: null,
-      includeUnknownSize: true,
-      subtitleLangs: ["pt"],
-    });
+    const filtered = filterSubtitles(input.subtitles, ["pt"]);
 
-    expect(filtered[0]?.subtitles?.map((track) => track.lang)).toEqual([
+    expect(filtered.map((track) => track.lang)).toEqual([
       "Brazilian Portuguese",
     ]);
   });
 
-  it("drops the subtitles field when no track matches", () => {
+  it("returns no tracks when nothing matches", () => {
     const input = subtitled([{ lang: "es", url: "https://subs.example/es.vtt" }]);
-    const filtered = filterStreams([input], {
-      maxRes: null,
-      minRes: null,
-      includeUnknown: true,
-      maxSizeMB: null,
-      includeUnknownSize: true,
-      subtitleLangs: ["en"],
-    });
-
-    expect(filtered).toHaveLength(1);
-    expect(filtered[0]).not.toHaveProperty("subtitles");
+    expect(filterSubtitles(input.subtitles, ["en"])).toEqual([]);
+    expect(input.subtitles).toHaveLength(1);
   });
 
-  it("leaves streams without subtitles untouched", () => {
+  it("keeps every stream and inline subtitle track regardless of language", () => {
+    const input = subtitled([{ lang: "es", url: "https://subs.example/es.vtt" }]);
     const plain: StremioStream = {
       name: "Provider",
       url: "https://cdn.example.com/plain.mp4",
     };
-    const filtered = filterStreams([plain], {
+    const filtered = filterStreams([input, plain], {
       maxRes: null,
       minRes: null,
       includeUnknown: true,
@@ -324,7 +289,9 @@ describe("subtitle language filtering", () => {
       includeUnknownSize: true,
       subtitleLangs: ["en"],
     });
-    expect(filtered[0]).toBe(plain);
+
+    expect(filtered).toEqual([input, plain]);
+    expect(filtered[0]?.subtitles).toHaveLength(1);
   });
 });
 

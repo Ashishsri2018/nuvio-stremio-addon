@@ -16,7 +16,11 @@ import type { SnapshotManager } from "../nuvio/snapshot.js";
 import { renderConfigurePage } from "./configure.js";
 import { getManifest } from "./manifest.js";
 import { parseStreamId, requestLogFields } from "./parseId.js";
-import { filterStreams, parseUserConfig } from "./userConfig.js";
+import {
+  filterStreams,
+  filterSubtitles,
+  parseUserConfig,
+} from "./userConfig.js";
 
 export interface AppDeps {
   config: AppConfig;
@@ -118,6 +122,8 @@ async function runSubtitleRequest(
   }
 
   if (res.writableEnded || res.destroyed) return;
+  const config = parseUserConfig(req.params.config);
+  subtitles = filterSubtitles(subtitles, config.subtitleLangs);
   res.status(200).json({ subtitles });
 }
 

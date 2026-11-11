@@ -291,6 +291,32 @@ describe("addon routes", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("applies the subtitle language filter to the subtitles resource only", async () => {
+    const { running } = await createServer();
+    const segment = Buffer.from(
+      JSON.stringify({ v: 1, subtitleLangs: ["en"] }),
+      "utf8",
+    ).toString("base64url");
+
+    const subtitles = await fetch(
+      `${running.url}/${segment}/subtitles/movie/tt0133093.json`,
+    );
+    expect(await subtitles.json()).toEqual({
+      subtitles: [
+        { id: "alpha-0", url: "https://cdn.test/en.vtt", lang: "English" },
+      ],
+    });
+
+    const streams = await fetch(
+      `${running.url}/${segment}/stream/movie/tt0133093.json`,
+    );
+    const body = (await streams.json()) as {
+      streams: Array<{ subtitles?: unknown[] }>;
+    };
+    expect(body.streams).toHaveLength(1);
+    expect(body.streams[0]?.subtitles).toHaveLength(2);
+  });
+
   it("returns 200 with empty subtitles for invalid ids and failures", async () => {
     const ok = await createServer();
     for (const path of [
