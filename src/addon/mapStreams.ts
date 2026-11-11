@@ -2,7 +2,7 @@ import type { NuvioRawStream, StremioStream, StremioSubtitle } from "../types.js
 import { BLOCKER_URL_PATTERN, isWebPage } from "./urlClassifier.js";
 
 export const MAX_STREAMS = 300;
-const DEFAULT_PER_PROVIDER_LIMIT = 20;
+const DEFAULT_PER_PROVIDER_LIMIT = MAX_STREAMS;
 
 const BLOCKED_HEADERS = new Set([
   "connection",
@@ -111,6 +111,20 @@ function buildTitle(rawTitle: string, quality: string): string | undefined {
   return `${rawTitle} \u2022 ${quality}`;
 }
 
+export function normalizeStreamKey(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const origin = parsed.origin.toLowerCase();
+    let pathname = parsed.pathname;
+    if (pathname.length > 1 && pathname.endsWith("/")) {
+      pathname = pathname.slice(0, -1);
+    }
+    return `${origin}${pathname}${parsed.search}`;
+  } catch {
+    return rawUrl.trim().toLowerCase();
+  }
+}
+
 export function mapScraperStreams(
   rawStreams: unknown[],
   options: MapScraperOptions,
@@ -132,8 +146,10 @@ export function mapScraperStreams(
     const parsed = parseHttpUrl(rawUrl);
     if (!parsed || isPlaceholderHost(parsed.hostname)) return;
     if (BLOCKER_URL_PATTERN.test(rawUrl)) return;
-    if (seenUrls.has(rawUrl)) return;
-    seenUrls.add(rawUrl);
+
+    const streamKey = normalizeStreamKey(rawUrl);
+    if (seenUrls.has(streamKey)) return;
+    seenUrls.add(streamKey);
 
     const quality = trimString(stream.quality);
     const title = buildTitle(trimString(stream.title) || trimString(stream.name), quality);
@@ -246,8 +262,9 @@ export function sortStreams(streams: StremioStream[]): StremioStream[] {
     if (!stream) return;
     const targetUrl = stream.url || stream.externalUrl;
     if (typeof targetUrl !== "string" || !targetUrl) return;
-    if (seen.has(targetUrl)) return;
-    seen.add(targetUrl);
+    const streamKey = normalizeStreamKey(targetUrl);
+    if (seen.has(streamKey)) return;
+    seen.add(streamKey);
     unique.push({ stream, index });
   });
 

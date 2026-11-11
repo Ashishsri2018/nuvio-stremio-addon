@@ -20,7 +20,8 @@ Working notes for continuity. Update this file after deployment, configuration, 
   - `src/addon/mapStreams.ts`: Maps detected web pages to Stremio's `externalUrl` (omitting `url`, `proxyHeaders`, and `subtitles`), preventing player decode errors in Stremio. Direct video streams (`.mp4`, `.mkv`, `.m3u8`, `.mpd`, Google UserContent, Cloudflare R2) continue using `url`.
   - Rate-limit slowdown blocker pages (`/slowdown`) matching `BLOCKER_URL_PATTERN` are dropped at ingestion.
   - `sortStreams` prioritizes direct playable video streams ahead of external web links, deduping across both `url` and `externalUrl`.
-  - Added unit test cases in `tests/mapStreams.test.ts` covering direct video detection, web/embed mapping, archive handling, blocker dropping, and stream sorting precedence. All 104 unit tests pass, `npm run typecheck` and `npm run build` pass cleanly.
+  - Raised per-provider limit from 20 to 300 to match the global ceiling, and implemented `normalizeStreamKey` so only duplicate URLs pointing to the same file (differing only in fragments, trailing slashes, or host casing) are removed.
+  - Added unit test cases in `tests/mapStreams.test.ts` covering direct video detection, web/embed mapping, archive handling, blocker dropping, same-file URL deduplication, and stream sorting precedence. All 105 unit tests pass, `npm run typecheck` and `npm run build` pass cleanly.
 
 - 2026-11-10: Upstream Codeberg changes verified (`eclipsia/nuvio-plugin` @ `a63b59bf7d`). The upstream bundle bumped to v12.3.0, dropped `noctyx` and `vitrix`, migrated `phraxis` to DooFlix, and updated `maelith` server endpoints. The scheduled `refresh-snapshot.yml` workflow ran on 2026-11-09 at 12:44 UTC and triggered a redeploy hook; production `/health` confirmed SHA `a63b59bf7ddd1fe9f6d8d53f76ed587bbebe0a51a56aca6facde5c01ed353096` active with 46 scrapers (`bdix-*` disabled). Local snapshot re-baked and verified with all 96 unit tests passing.
 

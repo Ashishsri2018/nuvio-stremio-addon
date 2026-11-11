@@ -117,13 +117,31 @@ describe("mapScraperStreams", () => {
     ]);
   });
 
-  it("caps streams per provider", () => {
+  it("allows up to 300 streams per provider by default, keeping all 30 unique streams", () => {
     const raw = Array.from({ length: 30 }, (_, index) => ({
       url: `https://cdn.test/${index}.mp4`,
       quality: `${index % 4 === 0 ? "1080p" : "720p"}`,
     }));
-    const streams = mapScraperStreams(raw, options({ perProviderLimit: 5 }));
-    expect(streams).toHaveLength(5);
+    const streams = mapScraperStreams(raw, options());
+    expect(streams).toHaveLength(30);
+
+    const capped = mapScraperStreams(raw, options({ perProviderLimit: 5 }));
+    expect(capped).toHaveLength(5);
+  });
+
+  it("removes duplicate URLs pointing to the same file", () => {
+    const streams = mapScraperStreams(
+      [
+        { url: "https://cdn.test/movie.mp4", quality: "1080p" },
+        { url: "https://CDN.TEST/movie.mp4#preview", quality: "1080p" },
+        { url: "https://cdn.test/movie.mp4/", quality: "1080p" },
+        { url: "https://cdn.test/other.mp4", quality: "720p" },
+      ],
+      options(),
+    );
+    expect(streams).toHaveLength(2);
+    expect(streams[0]?.url).toBe("https://cdn.test/movie.mp4");
+    expect(streams[1]?.url).toBe("https://cdn.test/other.mp4");
   });
 
   it("leaves the stream url untouched", () => {
@@ -256,10 +274,10 @@ describe("sortStreams", () => {
     ]);
   });
 
-  it("dedupes streams across url and externalUrl", () => {
+  it("dedupes streams across url and externalUrl, normalizing same-file variations", () => {
     const streams = sortStreams([
       { name: "first", externalUrl: "https://moviesapi.to/movie/1" },
-      { name: "dup", externalUrl: "https://moviesapi.to/movie/1" },
+      { name: "dup", externalUrl: "https://MOVIESAPI.TO/movie/1#watch" },
     ]);
     expect(streams).toHaveLength(1);
     expect(streams[0]?.name).toBe("first");
