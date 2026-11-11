@@ -1,7 +1,7 @@
 import type { NuvioRawStream, StremioStream, StremioSubtitle } from "../types.js";
 import { BLOCKER_URL_PATTERN, isWebPage } from "./urlClassifier.js";
 
-export const MAX_STREAMS = 300;
+export const MAX_STREAMS = 1000;
 const DEFAULT_PER_PROVIDER_LIMIT = MAX_STREAMS;
 
 const BLOCKED_HEADERS = new Set([

@@ -117,7 +117,7 @@ describe("mapScraperStreams", () => {
     ]);
   });
 
-  it("allows up to 300 streams per provider by default, keeping all 30 unique streams", () => {
+  it("allows up to 1000 streams per provider by default, keeping all 30 unique streams", () => {
     const raw = Array.from({ length: 30 }, (_, index) => ({
       url: `https://cdn.test/${index}.mp4`,
       quality: `${index % 4 === 0 ? "1080p" : "720p"}`,
