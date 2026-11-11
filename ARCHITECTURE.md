@@ -147,7 +147,7 @@ Provider execution is in-process and unsandboxed. The trust boundary is the pinn
 - `headers` are trimmed, validated (RFC 7230 token names, no CRLF), and filtered for hop-by-hop and `proxy-*` headers. They are attached only for direct streams when `PROXY_ENABLED=true` and at least one survives, as `behaviorHints.proxyHeaders.request`.
 - `bingeGroup` is `<scraperId>-<quality|auto>`.
 - `subtitles` accept `{url, language?, name?}` with http(s) URLs and become Stremio `{id, url, lang}` (language defaults to `en`). Providers usually emit full names (`English`, `Brazilian`); `userConfig` normalizes both those and configured ISO codes before matching (`LANGUAGE_ALIASES`).
-- Up to 1000 streams per provider (matching the global ceiling); duplicate URLs pointing to the same file are deduped across `url` and `externalUrl` (normalizing host casing, trailing slashes, and hash fragments).
+- Up to 100 streams per provider; duplicate URLs pointing to the same file are deduped across `url` and `externalUrl` (normalizing host casing, trailing slashes, and hash fragments).
 - `sortStreams` dedupes globally by URL, prioritizes direct playable streams before external web links, sorts by inferred quality (`8k`, `4k`, `uhd`, `qhd`, `fhd`, `###p`, bare resolutions), then prefers direct files (`.mp4`, `.mkv`, etc.) over unknown formats over HLS/DASH. Otherwise input order is preserved.
 - The pipeline caps the combined result at 1000 streams.
 

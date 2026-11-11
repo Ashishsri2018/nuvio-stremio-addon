@@ -117,16 +117,16 @@ describe("mapScraperStreams", () => {
     ]);
   });
 
-  it("allows up to 1000 streams per provider by default, keeping all 30 unique streams", () => {
-    const raw = Array.from({ length: 30 }, (_, index) => ({
+  it("caps streams at 100 per provider by default", () => {
+    const raw = Array.from({ length: 120 }, (_, index) => ({
       url: `https://cdn.test/${index}.mp4`,
       quality: `${index % 4 === 0 ? "1080p" : "720p"}`,
     }));
     const streams = mapScraperStreams(raw, options());
-    expect(streams).toHaveLength(30);
+    expect(streams).toHaveLength(100);
 
-    const capped = mapScraperStreams(raw, options({ perProviderLimit: 5 }));
-    expect(capped).toHaveLength(5);
+    const customCapped = mapScraperStreams(raw, options({ perProviderLimit: 5 }));
+    expect(customCapped).toHaveLength(5);
   });
 
   it("removes duplicate URLs pointing to the same file", () => {
