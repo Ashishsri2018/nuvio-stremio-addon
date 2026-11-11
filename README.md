@@ -128,7 +128,7 @@ openssl rand -hex 32 | vercel env add CRON_SECRET --environment production
 vercel --prod --yes
 ```
 
-`vercel.json` sets `buildCommand` to `npm run bake && npm run build`, pins functions to the `fra1` region, and sets `outputDirectory` to `public/` (kept via a placeholder file) so the static stage and the `api/` functions build together. The baked `snapshot/` is bundled into both functions via `includeFiles`. `api/index.ts` exports the Express app; `api/cron/refresh.ts` handles the cron. Both run with `maxDuration: 60`.
+`vercel.json` sets `buildCommand` to `npm run bake && npm run build`, pins functions to the `fra1` region, and sets `outputDirectory` to `public/` (kept via a placeholder file) so the static stage and the `api/` functions build together. The baked `snapshot/` is bundled into both functions via `includeFiles`. The bake retries transient Codeberg failures (three attempts with backoff) and fails the build if it still cannot produce a snapshot, so a broken upstream cannot replace a working deployment. `api/index.ts` exports the Express app; `api/cron/refresh.ts` handles the cron. Both run with `maxDuration: 60`.
 
 Vercel Git integration deploys pushes to `main` after CI. Deployment-specific `*.vercel.app` URLs are protected by Vercel Authentication; use the production alias. If Git integration is unavailable, run `vercel --prod --yes`.
 

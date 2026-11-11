@@ -6,6 +6,8 @@ const WEB_BASE = "https://codeberg.org";
 const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
 const MAX_PROVIDER_BYTES = 2 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
+const REQUEST_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 2_000;
 const DOWNLOAD_CONCURRENCY = 8;
 
 const source = process.env.NUVIO_SOURCE?.trim() || "eclipsia/nuvio-plugin";
@@ -37,7 +39,21 @@ function isSafePath(value) {
   );
 }
 
-async function fetchBuffer(url, maxBytes) {
+function isRetryableError(error) {
+  if (!error || typeof error !== "object") return false;
+  if (error.name === "TimeoutError" || error.name === "AbortError") return true;
+  if (error.name === "TypeError") return true;
+  if (typeof error.status === "number") {
+    return error.status === 429 || error.status >= 500;
+  }
+  return false;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchBufferOnce(url, maxBytes) {
   const response = await fetch(url, {
     headers: {
       Accept: "application/json, text/plain, */*",
@@ -47,13 +63,34 @@ async function fetchBuffer(url, maxBytes) {
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (!response.ok) {
-    throw new Error(`${url} returned ${response.status}`);
+    const error = new Error(`${url} returned ${response.status}`);
+    error.status = response.status;
+    throw error;
   }
   const buffer = Buffer.from(await response.arrayBuffer());
   if (buffer.length === 0 || buffer.length > maxBytes) {
     throw new Error(`${url} has invalid size (${buffer.length} bytes)`);
   }
   return buffer;
+}
+
+async function fetchBuffer(url, maxBytes) {
+  for (let attempt = 1; attempt <= REQUEST_ATTEMPTS; attempt += 1) {
+    try {
+      return await fetchBufferOnce(url, maxBytes);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (attempt >= REQUEST_ATTEMPTS || !isRetryableError(error)) {
+        throw error;
+      }
+      const delay = RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+      console.warn(
+        `retrying ${url} in ${delay}ms (attempt ${attempt + 1}/${REQUEST_ATTEMPTS}): ${message}`,
+      );
+      await sleep(delay);
+    }
+  }
+  throw new Error(`${url} failed after ${REQUEST_ATTEMPTS} attempts`);
 }
 
 async function resolveSha() {
@@ -147,7 +184,8 @@ async function bake() {
 
 bake().catch(async (error) => {
   await fs.rm(staging, { recursive: true, force: true }).catch(() => undefined);
-  console.warn(
-    `snapshot bake skipped: ${error instanceof Error ? error.message : String(error)}`,
+  console.error(
+    `snapshot bake failed: ${error instanceof Error ? error.message : String(error)}`,
   );
+  process.exitCode = 1;
 });
